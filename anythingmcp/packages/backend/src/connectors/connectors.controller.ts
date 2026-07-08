@@ -673,7 +673,20 @@ export class ConnectorsController {
       let tokenEndpoint: string;
       let scope: string | undefined;
 
-      if (connector.type === 'MCP') {
+      if (
+        connector.type === 'MCP' &&
+        authConfig.authorizationUrl &&
+        authConfig.tokenUrl
+      ) {
+        // Remote MCP with explicit OAuth (e.g. Google Workspace MCP) — no .well-known.
+        clientId = String(authConfig.clientId || '');
+        clientSecret = authConfig.clientSecret
+          ? String(authConfig.clientSecret)
+          : undefined;
+        authorizationEndpoint = String(authConfig.authorizationUrl);
+        tokenEndpoint = String(authConfig.tokenUrl);
+        scope = authConfig.scopes ? String(authConfig.scopes) : undefined;
+      } else if (connector.type === 'MCP') {
         // MCP: discover OAuth metadata from remote server
         const metadata = await this.mcpOAuthService.discoverMetadata(connector.baseUrl);
         this.logger.log(`OAuth metadata discovered from ${connector.baseUrl}: issuer=${metadata.issuer}`);

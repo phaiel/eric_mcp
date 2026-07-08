@@ -153,7 +153,9 @@ function connectorPayload(clientId, clientSecret) {
 
 async function main() {
   const clientId =
-    GOOGLE_WORKSPACE_CLIENT_ID || (await renderEnv('GOOGLE_WORKSPACE_CLIENT_ID'));
+    GOOGLE_WORKSPACE_CLIENT_ID ||
+    (await renderEnv('GOOGLE_WORKSPACE_CLIENT_ID')) ||
+    (await renderEnv('OOGLE_WORKSPACE_CLIENT_ID'));
   const clientSecret =
     GOOGLE_WORKSPACE_CLIENT_SECRET || (await renderEnv('GOOGLE_WORKSPACE_CLIENT_SECRET'));
 
