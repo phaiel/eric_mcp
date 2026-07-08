@@ -183,9 +183,9 @@ async function main() {
     connector = await amcpRequest(token, 'POST', '/api/connectors', payload);
     console.log('Created connector', connector.id);
   } else {
-    const { type: _type, authConfig: _auth, ...updatePayload } = payload;
+    const { type: _type, ...updatePayload } = payload;
     connector = await amcpRequest(token, 'PUT', `/api/connectors/${connector.id}`, updatePayload);
-    console.log('Updated connector', connector.id, '(preserved OAuth tokens)');
+    console.log('Updated connector', connector.id, '(authConfig merged, tokens preserved)');
   }
 
   const notionId = connectors.find((c) => c.name === 'Notion' && c.type === 'MCP')?.id;
@@ -207,7 +207,7 @@ async function main() {
 
   const MCP_KEY = await renderEnv('MCP_API_KEY');
   if (MCP_KEY) {
-    const probe = await fetch(`${AMCP_BASE}/mcp/${AMCP_SERVER_ID}`, {
+    const probe = await fetch(`${AMCP_BASE_URL}/mcp/${AMCP_SERVER_ID}`, {
       method: 'POST',
       headers: {
         'X-API-Key': MCP_KEY,

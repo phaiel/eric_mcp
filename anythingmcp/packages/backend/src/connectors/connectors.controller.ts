@@ -675,16 +675,24 @@ export class ConnectorsController {
 
       if (
         connector.type === 'MCP' &&
-        authConfig.authorizationUrl &&
-        authConfig.tokenUrl
+        (authConfig.authorizationUrl ||
+          String(connector.baseUrl).includes('workspacemcp.googleapis.com') ||
+          String(connector.baseUrl).includes('calendarmcp.googleapis.com') ||
+          String(connector.baseUrl).includes('gmailmcp.googleapis.com') ||
+          String(connector.baseUrl).includes('drivemcp.googleapis.com'))
       ) {
         // Remote MCP with explicit OAuth (e.g. Google Workspace MCP) — no .well-known.
         clientId = String(authConfig.clientId || '');
         clientSecret = authConfig.clientSecret
           ? String(authConfig.clientSecret)
           : undefined;
-        authorizationEndpoint = String(authConfig.authorizationUrl);
-        tokenEndpoint = String(authConfig.tokenUrl);
+        authorizationEndpoint = String(
+          authConfig.authorizationUrl ||
+            'https://accounts.google.com/o/oauth2/v2/auth',
+        );
+        tokenEndpoint = String(
+          authConfig.tokenUrl || 'https://oauth2.googleapis.com/token',
+        );
         scope = authConfig.scopes ? String(authConfig.scopes) : undefined;
       } else if (connector.type === 'MCP') {
         // MCP: discover OAuth metadata from remote server
