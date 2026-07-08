@@ -146,6 +146,10 @@ function connectorPayload(clientId, clientSecret) {
       },
     },
     config: { mcpPath: WORKSPACE_MCP_PATH },
+    // Project attribution comes from the OAuth client (created in
+    // niagara-mcp-host); do NOT set x-goog-user-project — user tokens with
+    // product-only scopes can't authorize quota-project attribution.
+    headers: {},
     instructions:
       "Google Workspace Universal Search MCP (hosted by Google). Tool: search_corpus — cross-product search across Gmail, Drive, Calendar, and Chat. Read-only. OAuth must include scopes for each product you want searched.",
   };
