@@ -97,7 +97,7 @@ const pageRefs = (text) => {
 const pageIds = (text) => pageRefs(text).map((p) => p.id);
 
 async function createDb(parentPageId, title, description, schema) {
-  const text = await mcpCall('notion-create-database', {
+  const text = await mcpCall('API-create-a-data-source', {
     parent: { page_id: parentPageId },
     title,
     description,
@@ -115,7 +115,7 @@ async function createDb(parentPageId, title, description, schema) {
  * rejects bare IDs for relations with "Invalid agent URL".
  */
 async function createPages(dataSourceId, pages, intent) {
-  const text = await mcpCall('notion-create-pages', {
+  const text = await mcpCall('API-post-page', {
     parent: { data_source_id: dataSourceId },
     pages,
     _intent: intent,
@@ -140,7 +140,7 @@ async function main() {
   }
   const parentText = process.env.PARENT_PAGE_ID
     ? JSON.stringify({ pages: [{ id: process.env.PARENT_PAGE_ID, url: '' }] })
-    : await mcpCall('notion-create-pages', {
+    : await mcpCall('API-post-page', {
     pages: [
       {
         properties: { title: 'Personal OS' },
@@ -187,7 +187,7 @@ async function main() {
     `CREATE TABLE ("Decision" TITLE, "Project" RELATION('${projects}', DUAL 'Decisions'), "Assumption" RICH_TEXT COMMENT 'What this decision assumes true', "Open question" RICH_TEXT, "Status" SELECT('Open':yellow, 'Decided':green, 'Superseded':gray), "Date" DATE, "Source" RICH_TEXT COMMENT 'Where this came from: chat, email thread id, meeting')`,
   );
   // Self-relation must be added after creation (needs own data source id).
-  await mcpCall('notion-update-data-source', {
+  await mcpCall('API-update-a-data-source', {
     data_source_id: decisions,
     statements: `ADD COLUMN "Supersedes" RELATION('${decisions}', DUAL 'Superseded by' 'superseded_by')`,
     _intent: 'Add Supersedes self-relation to Decisions',
@@ -221,7 +221,7 @@ async function main() {
     'PARA Resources — stable context and synthesis. Tags are defined in Tag Definitions.',
     `CREATE TABLE ("Name" TITLE, "Type" SELECT('Research':purple, 'Reference':blue, 'Synthesis':green, 'Journal':gray), "Tags" MULTI_SELECT('research':purple, 'decision-support':yellow, 'reference':blue, 'idea':green, 'followup':red), "Status" SELECT('Active':green, 'Archive':gray), "project_slug" RICH_TEXT, "Project" RELATION('${projects}', DUAL 'Notes'), "Source pointer" RICH_TEXT COMMENT 'External id or URL: drive_file_id, pmid, thread id — never full copies')`,
   );
-  await mcpCall('notion-update-data-source', {
+  await mcpCall('API-update-a-data-source', {
     data_source_id: notes,
     statements: `ADD COLUMN "Parent" RELATION('${notes}', DUAL 'Children' 'children')`,
     _intent: 'Add Parent/Children self-relation to Notes',

@@ -1,54 +1,49 @@
 # Personal OS Skills
 
-Reviewed source text for the AnythingMCP AI Skills that drive the Personal OS.
-GitHub is the source of truth; AnythingMCP (Render) is the runtime. Applied
-skills are composed into the MCP server's instructions, so they apply to every
-client of that server (Claude, Cursor, mobile) without any Claude-side setup.
+Skills are split by **runtime**. MCP is connectivity; Claude holds the agent playbook.
 
-## The set
+| Directory | Runtime | Deploy |
+|-----------|---------|--------|
+| `platform/` | AnythingMCP (Render) | `node scripts/deploy-anythingmcp-skills.mjs` |
+| `claude/` | Claude Skills (zip or `.claude/skills/`) | See [claude/README.md](claude/README.md) |
 
-| Skill | Scope | Job |
-|---|---|---|
-| `personal-os-schema-map` | server | Where everything lives: databases, properties, IDs, conventions |
-| `personal-os-presenter` | server | ADHD output rules + response templates |
-| `write-gate` | server | Propose-before-write, untrusted external content |
-| `dedup-before-write` | server | Search first; supersede decisions, never duplicate |
-| `find-the-thread` | server | Retrieval recipe: project → decisions → blockers → facts |
-| `morning-brief-and-shutdown` | server | Today's 3, shutdown log to Daily, re-entry rule |
-| `hevy-training-summary` | server | Workout facts stay in Hevy; Daily gets pointer + summary |
-| `capture-to-notion-inbox` | Notion connector | "dump:" → Inbox row, zero friction |
+## Platform skills (AnythingMCP)
 
-## Deploying
+Thin server contract only (~3 skills). See [Anthropic distinction](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices): MCP carries **tool safety and connector facts**; Claude Skills carry **workflows and voice**.
+
+| Skill | Job |
+|-------|-----|
+| `server-manifest` | What connectors exist on this server; what is not connected |
+| `notion-tooling` | Notion tool choice, retrieval rules, schema-on-demand |
+| `mcp-write-safety` | Mutation gate, untrusted external content |
+
+## Claude skill
+
+One domain skill: `claude/personal-os/` (router + `references/`). Package with `node scripts/package-claude-skills.mjs`. See [claude/README.md](claude/README.md).
+
+## Deploying platform skills
 
 ```bash
-node scripts/deploy-anythingmcp-skills.mjs           # deploy/update all
+node scripts/deploy-anythingmcp-skills.mjs           # deploy + retire legacy
 node scripts/deploy-anythingmcp-skills.mjs --dry-run # preview
 ```
 
-The deployer matches by title (updates in place), scopes `server` skills to the
-Personal OS MCP server and `connector` skills by connector name, and leaves
-`skillAutoApply` off so AI-generated suggestions still require review.
+The deployer retires applied skills that are no longer in `platform/` (old playbook skills removed from Render).
 
 ## Related files
 
-- `docs/personal-os-notion-manifest.json` — data source IDs and project page
-  URLs created by the Notion seed. The schema-map skill embeds these; if you
-  re-seed, regenerate that skill text too.
-- `scripts/seed-notion-personal-os.mjs` — one-time Notion storage seed
-  (databases + golden rows). Guarded by the manifest: delete it to re-seed.
+- `docs/personal-os-notion-manifest.json` — data source IDs (git source of truth; agent uses `API-retrieve-a-data-source` at runtime)
+- `scripts/seed-notion-personal-os.mjs` — one-time Notion seed
 
-## Frontmatter
+## Frontmatter (platform skills)
 
 ```yaml
 ---
-title: Skill title in AnythingMCP   # match key for updates
-scope: server | connector
-connector: Notion                    # only for scope: connector
+title: Skill title in AnythingMCP
+scope: server
 status: applied
-whenToUse: Short trigger text shown to the agent
+whenToUse: Short trigger for the agent
 ---
 ```
 
-Body = the instruction (max 2,000 chars — AnythingMCP truncates beyond that).
-Keep skills imperative and specific; they are concatenated into one
-instructions block, so bloat in any one skill costs every request.
+Max 2,000 chars per skill body (AnythingMCP truncates beyond that).

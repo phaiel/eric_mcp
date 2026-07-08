@@ -128,10 +128,22 @@ async function waitForHealthy(timeoutMs = 900000) {
   throw new Error('Timed out waiting for Render health');
 }
 
+async function renderPostgresUrl() {
+  const key = await renderApiKey();
+  if (!key) return null;
+  const res = await fetch(
+    'https://api.render.com/v1/postgres/dpg-d96qkt58nd3s73beussg-a/connection-info',
+    { headers: { Authorization: `Bearer ${key}` } },
+  );
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.externalConnectionString ?? null;
+}
+
 async function notionTokenFromConnector(databaseUrl, encryptionKey, connectorId) {
   const client = new pg.Client({
     connectionString: databaseUrl,
-    ssl: databaseUrl.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
+    ssl: { rejectUnauthorized: false },
   });
   await client.connect();
   try {
@@ -171,22 +183,28 @@ async function main() {
   const renderKey = await renderApiKey();
   if (!renderKey) throw new Error('Set RENDER_API_KEY or log in with Render CLI');
 
-  const [jwtSecret, encKey, databaseUrl, bridgeAuth] = await Promise.all([
+  const [jwtSecret, encKey, databaseUrlInternal, bridgeAuth] = await Promise.all([
     renderEnv('JWT_SECRET'),
     renderEnv('ENCRYPTION_KEY'),
     renderEnv('DATABASE_URL'),
     renderEnv('NOTION_MCP_AUTH_TOKEN'),
   ]);
+  const databaseUrl = (await renderPostgresUrl()) || databaseUrlInternal;
   if (!jwtSecret || !encKey || !databaseUrl || !bridgeAuth) {
-    throw new Error('Missing JWT_SECRET, ENCRYPTION_KEY, DATABASE_URL, or NOTION_MCP_AUTH_TOKEN on Render');
+    throw new Error('Missing JWT_SECRET, ENCRYPTION_KEY, database URL, or NOTION_MCP_AUTH_TOKEN on Render');
   }
 
   let notionToken = process.env.NOTION_TOKEN || (await renderEnv('NOTION_TOKEN'));
   if (!notionToken) {
-    console.log('NOTION_TOKEN missing on Render — copying from existing Notion connector auth...');
-    notionToken = await notionTokenFromConnector(databaseUrl, encKey, NOTION_CONNECTOR_ID);
-    await renderSetEnv('NOTION_TOKEN', notionToken);
-    console.log('NOTION_TOKEN set on Render');
+    console.log('NOTION_TOKEN missing on Render — trying existing connector auth...');
+    try {
+      notionToken = await notionTokenFromConnector(databaseUrl, encKey, NOTION_CONNECTOR_ID);
+      await renderSetEnv('NOTION_TOKEN', notionToken);
+      console.log('NOTION_TOKEN set on Render from connector auth');
+    } catch (err) {
+      console.warn(`Could not copy NOTION_TOKEN (${err.message}).`);
+      console.warn('Add NOTION_TOKEN in Render (your Notion PAT), redeploy, then re-run discover.');
+    }
   }
 
   for (const [k, v] of [
@@ -221,7 +239,6 @@ async function main() {
       baseUrl: sidecarBase,
       authType: 'BEARER_TOKEN',
       authConfig: { token: bridgeAuth },
-      isActive: true,
     });
     console.log('Created MCP bridge connector', connector.id);
   } else {
@@ -229,7 +246,6 @@ async function main() {
       baseUrl: sidecarBase,
       authType: 'BEARER_TOKEN',
       authConfig: { token: bridgeAuth },
-      isActive: true,
       headers: {},
     });
     console.log('Updated MCP bridge connector', connector.id);
