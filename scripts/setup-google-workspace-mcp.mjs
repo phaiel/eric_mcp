@@ -183,7 +183,8 @@ async function main() {
     connector = await amcpRequest(token, 'POST', '/api/connectors', payload);
     console.log('Created connector', connector.id);
   } else {
-    connector = await amcpRequest(token, 'PUT', `/api/connectors/${connector.id}`, payload);
+    const { type: _type, ...updatePayload } = payload;
+    connector = await amcpRequest(token, 'PUT', `/api/connectors/${connector.id}`, updatePayload);
     console.log('Updated connector', connector.id);
   }
 
