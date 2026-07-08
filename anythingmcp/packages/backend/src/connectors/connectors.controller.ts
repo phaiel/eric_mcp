@@ -27,7 +27,7 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ConnectorType, AuthType } from '../generated/prisma/client';
+import { ConnectorType, AuthType, Prisma } from '../generated/prisma/client';
 import { ConnectorsService } from './connectors.service';
 import { buildGraphqlBuiltinTools, slugifyForPrefix } from './graphql-builtins';
 import { OpenApiParser } from './parsers/openapi.parser';
@@ -813,7 +813,7 @@ export class ConnectorsController {
 
       await this.prisma.mcpTool.updateMany({
         where: { connectorId: connector.id },
-        data: { outputSchema: null },
+        data: { outputSchema: Prisma.DbNull },
       });
       await this.mcpServer.reloadConnectorTools(connector.id);
 
