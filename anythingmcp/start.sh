@@ -29,7 +29,12 @@ if [ -n "$RENDER_EXTERNAL_URL" ]; then
   export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-$RENDER_EXTERNAL_URL}"
   export CORS_ORIGIN="${CORS_ORIGIN:-$RENDER_EXTERNAL_URL}"
 fi
-export BACKEND_INTERNAL_URL="${BACKEND_INTERNAL_URL:-http://localhost:${BACKEND_PORT}}"
+export BACKEND_INTERNAL_URL="${BACKEND_INTERNAL_URL:-http://127.0.0.1:${BACKEND_PORT}}"
+
+if [ -z "$DATABASE_URL" ]; then
+  echo "==> ERROR: DATABASE_URL is not set. Configure it in Render env vars and redeploy."
+  exit 1
+fi
 
 echo "==> Running database migrations..."
 cd /app/backend

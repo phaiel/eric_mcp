@@ -76,6 +76,7 @@ COPY package.json package-lock.json ./
 COPY packages/frontend/ ./packages/frontend/
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV BACKEND_INTERNAL_URL=http://127.0.0.1:4000
 
 WORKDIR /app/packages/frontend
 RUN npm run build
