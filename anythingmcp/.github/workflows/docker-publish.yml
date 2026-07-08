@@ -1,0 +1,79 @@
+name: Publish Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag override (leave empty for default tagging)"
+        required: false
+        type: string
+
+jobs:
+  publish:
+    name: Build & Push to Docker Hub
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: helpcodeai/anythingmcp
+          tags: |
+            # always tag as latest
+            type=raw,value=latest
+            # version tag from workflow input (if provided)
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            # short SHA for traceability
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          # arm64 dropped: Prisma 7.8.0's WASM schema engine misparses
+          # `onDelete: Cascade` on linux/arm64 (reads it as empty),
+          # blocking `prisma generate`. Production runs on amd64 droplets;
+          # re-add arm64 once Prisma ships a fix (track upstream).
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update Docker Hub description from README
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: helpcodeai/anythingmcp
+          readme-filepath: ./README.md
+
+      - name: Set Docker Hub categories
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"$DOCKERHUB_USERNAME\",\"password\":\"$DOCKERHUB_TOKEN\"}" \
+            | jq -r '.token')
+          curl -s -X PATCH "https://hub.docker.com/v2/repositories/helpcodeai/anythingmcp/" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"categories": [{"slug": "api-management"}, {"slug": "integration-and-delivery"}]}'

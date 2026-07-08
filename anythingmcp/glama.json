@@ -1,0 +1,7 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": [
+    "keysersoft"
+  ],
+  "description": "Self-hosted MCP gateway and API-to-MCP bridge for REST, SOAP/WSDL, GraphQL and SQL. 30+ pre-built adapters for SaaS and public APIs (DHL, DATEV, Personio, Companies House, Razorpay, Mercado Libre …), on-prem audit log, OAuth2/RBAC. Open source under AGPL-3.0."
+}

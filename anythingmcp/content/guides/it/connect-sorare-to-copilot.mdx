@@ -1,0 +1,137 @@
+---
+title: "Come collegare Sorare a GitHub Copilot — Fantasy Football NFT via MCP"
+description: "Collega l'API GraphQL di Sorare a GitHub Copilot Chat con AnythingMCP. Interroga carte, giocatori, line-up, aste, wallet e mercato dei trasferimenti in linguaggio naturale. Bcrypt-login e caching JWT a 30 giorni gestiti in automatico."
+category: "connectors"
+keyword: "Sorare Copilot, Sorare GitHub Copilot, Sorare Copilot MCP, Sorare GraphQL Copilot, fantasy football Copilot, NFT fantasy Copilot"
+publishedAt: "2026-05-18"
+adapterSlug: "sorare"
+lang: "it"
+---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HelpCode-ai/anythingmcp/main/content/guides/assets/sorare.svg" alt="Sorare" width="220" />
+</p>
+
+> 💡 **Niente installazione? Vai direttamente su [cloud.anythingmcp.com](https://cloud.anythingmcp.com).** Accedi, clicca **Connectors → Sorare**, inserisci email + password Sorare, genera una MCP API key — fatto. Niente Docker, niente `git clone`, niente server locale da avviare. Salta i passi di installazione locale qui sotto e vai direttamente alla configurazione del client.
+
+## Collegare Sorare a GitHub Copilot
+
+GitHub Copilot Chat ora supporta il **Model Context Protocol (MCP)** tramite la configurazione `mcp` in VS Code e JetBrains. Con AnythingMCP che espone l'API GraphQL completa di Sorare come server MCP gestito, puoi interrogare carte, giocatori, line-up, mercato secondario e il tuo wallet direttamente da Copilot — senza uscire dall'editor.
+
+### Cosa puoi fare
+
+- "Sorare: qual è il mio saldo wallet e come sto andando in So5 questa stagione?"
+- "Sorare: trova la carta Limited più economica per Bukayo Saka adesso."
+- "Sorare: lista le mie carte Rare per giocatore, ordinate per ultimo score So5."
+- "Sorare: mostrami le vendite recenti di carte Rare di Vinícius Júnior negli ultimi 30 giorni."
+
+
+<YoutubeEmbed
+  id="B0nNJ3fu7OY"
+  title="Collegare Sorare a Claude AI — setup completo + strategia d'acquisto da 100 € live (funziona anche in ChatGPT, Copilot e OpenClaw)"
+  lang="it"
+/>
+
+> 🔒 Il video è incorporato con la **soluzione DSGVO/GDPR a due click** — niente raggiunge Google finché non premi Play.
+
+
+### Prerequisiti
+
+- Account Sorare attivo su https://sorare.com — consigliato un **account dedicato in sola lettura con 2FA disattivata** per uso headless / agent.
+- AnythingMCP in locale o su cloud.anythingmcp.com (setup di 3 minuti).
+- GitHub Copilot Chat con MCP abilitato (VS Code Insiders ≥ 1.95 o plugin JetBrains con MCP).
+
+### Step 1 — Installa l'adapter Sorare su cloud.anythingmcp.com (no code)
+
+1. Accedi su **[cloud.anythingmcp.com](https://cloud.anythingmcp.com)**.
+2. Apri **Connectors → Sorare → Install**.
+3. Inserisci:
+   - `SORARE_EMAIL` — email del tuo account Sorare
+   - `SORARE_PASSWORD` — password in chiaro (hashata bcrypt localmente prima del login; non viene mai salvata in chiaro)
+4. Genera una MCP API key in **Profile → MCP API Keys → New Key**. Copiala.
+
+Non c'è un campo AUD — l'adapter fissa l'audience del JWT a `anythingmcp`.
+
+### Step 2 — Aggiungi Sorare a Copilot (no code, Command Palette)
+
+In VS Code (Insiders ≥ 1.95, o Stable con supporto MCP):
+
+1. **Cmd/Ctrl + Shift + P** per aprire la Command Palette.
+2. Scrivi **`MCP: Add Server`** e seleziona l'opzione HTTP.
+3. Inserisci:
+   - **Server URL:** `https://cloud.anythingmcp.com/mcp`
+   - **Authorization header:** `Bearer LA_TUA_MCP_API_KEY` (dallo Step 1)
+4. Chiama il server `sorare` e conferma.
+
+VS Code riavvia Copilot Chat in automatico. Tutti e 18 i tool Sorare appaiono nel picker tool di Copilot — vai con i prompt.
+
+> **JetBrains?** Stesso flusso — apri il pannello Copilot → MCP servers → Add server → incolla URL + Bearer token.
+
+<details>
+<summary><strong>Avanzato: editing manuale di <code>settings.json</code></strong></summary>
+
+Se preferisci editare direttamente il file di config, apri `settings.json` (Cmd/Ctrl + Shift + P → "Preferences: Open User Settings (JSON)") e aggiungi:
+
+```json
+{
+  "mcp.servers": {
+    "sorare": {
+      "url": "https://cloud.anythingmcp.com/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer LA_TUA_MCP_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Riavvia Copilot Chat. I 18 tool Sorare compaiono in automatico — Copilot sceglie il tool giusto in base al prompt.
+
+</details>
+
+### Tool disponibili (18)
+
+| Gruppo | Tool |
+|---|---|
+| **Identità / wallet** | `sorare_current_user`, `sorare_wallet_balance`, `sorare_my_trophies_summary`, `sorare_user_by_slug` |
+| **Carte** | `sorare_list_my_cards`, `sorare_get_card_by_slug`, `sorare_list_player_cards` |
+| **Giocatori** | `sorare_search_player`, `sorare_player_recent_scores`, `sorare_player_floor_price` |
+| **Mercato** | `sorare_live_sale_offers`, `sorare_token_prices`, `sorare_get_auction`, `sorare_get_lineup` |
+| **GraphQL generico** | `sorare_graphql_schema_url`, `sorare_graphql_schema`, `sorare_graphql_query`, `sorare_graphql_mutation`, `sorare_graphql_subscription` |
+
+
+## Oltre i 18 tool — la tua AI chiama *qualsiasi* endpoint GraphQL di Sorare
+
+Questi tool dedicati coprono i casi d'uso più comuni, ma ogni connector GraphQL include anche **`sorare_graphql_schema`**, **`sorare_graphql_query`**, **`sorare_graphql_mutation`** e **`sorare_graphql_subscription`** — escape hatch auto-iniettati che permettono alla tua AI di comporre **qualsiasi** operazione supportata dallo schema Sorare.
+
+È la differenza tra una lista tool fissa e un agent vero. Chiedile:
+
+> *"Trovami 3 Limited che probabilmente faranno punti la prossima GW e che stanno 30 %+ sotto la loro media a 30 giorni. Solo Top 5 europee."*
+
+…e la tua AI esplora lo schema GraphQL di Sorare, scansiona `topPerformers`, fa il join con `liveSingleSaleOffers` per i floor, incrocia con `tokenPrices` per la media 30g e ti consegna una shopping list + piano di riserva. Tutto da un solo prompt, senza scrivere GraphQL a mano.
+
+👉 Una chat completa la trovi nell'[announcement del lancio Sorare](./sorare-now-on-anythingmcp) — un roundtrip Claude reale che costruisce da solo una strategia d'acquisto da 100 €.
+
+
+### Rotazione token
+
+I JWT Sorare vivono ~30 giorni. AnythingMCP li ri-emette 24 h prima della scadenza e a ogni 401 — Copilot non vede mai un token scaduto.
+
+### FAQ
+
+**Copilot deve girare sulla stessa macchina di AnythingMCP?**
+No. L'URL MCP può essere qualsiasi host raggiungibile; cloud.anythingmcp.com funziona da ovunque.
+
+**Posso limitare Copilot ai soli tool read-only di Sorare?**
+Sì — in AnythingMCP crea un Role che whiteliste solo i tool `sorare_get_*`, `sorare_list_*`, `sorare_current_user`, `sorare_wallet_balance`, `sorare_token_prices` e `sorare_player_*`, poi lega la tua MCP API key a quel Role.
+
+**L'integrazione MCP di Copilot funziona anche su JetBrains?**
+Sì — stesso JSON nel pannello settings del Copilot di JetBrains.
+
+### Prossimi passi
+
+- [Sorare su MCP — guida generica](./sorare-to-mcp)
+- [Collegare Sorare a Claude](./connect-sorare-to-claude)
+- [Collegare Sorare a ChatGPT](./connect-sorare-to-chatgpt)
+- [Collegare Sorare a OpenClaw](./connect-sorare-to-openclaw)

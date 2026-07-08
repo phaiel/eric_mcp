@@ -1,0 +1,52 @@
+# Personal OS — AnythingMCP on Render
+# Deploy: connect this repo in Render Dashboard → New → Blueprint
+# Docs: docs/render-deploy.md
+
+databases:
+  - name: personal-os-db
+    plan: basic-256mb
+    databaseName: anythingmcp
+    user: amcp
+
+services:
+  - type: web
+    name: personal-os-mcp
+    runtime: docker
+    rootDir: anythingmcp
+    plan: starter
+    region: ohio
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_PORT
+        value: "4000"
+      - key: BACKEND_INTERNAL_URL
+        value: http://localhost:4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: personal-os-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: ALLOW_OPEN_REGISTRATION
+        value: "false"
+      # Claude Mobile needs OAuth — use both so legacy bearer still works for testing
+      - key: MCP_AUTH_MODE
+        value: both
+      - key: MCP_BEARER_TOKEN
+        generateValue: true
+      - key: MCP_API_KEY
+        generateValue: true
+      # SERVER_URL, FRONTEND_URL, etc. are auto-set from RENDER_EXTERNAL_URL in start.sh
+      # After first deploy, set these in Render if OAuth redirects fail:
+      #   SERVER_URL=https://<your-service>.onrender.com
+      #   FRONTEND_URL=https://<your-service>.onrender.com
+      #   NEXTAUTH_URL=https://<your-service>.onrender.com
+      #   NEXT_PUBLIC_API_URL=https://<your-service>.onrender.com
+      #   CORS_ORIGIN=https://<your-service>.onrender.com

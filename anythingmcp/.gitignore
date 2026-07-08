@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Prisma
+packages/backend/prisma/*.db
+packages/backend/src/generated/
+
+# Docker
+.docker/
+docker-compose.override.yml
+Caddyfile
+
+# Playwright
+packages/frontend/test-results/
+packages/frontend/playwright-report/
+packages/frontend/blob-report/
+packages/frontend/playwright/.cache/
+
+# Misc
+*.tsbuildinfo

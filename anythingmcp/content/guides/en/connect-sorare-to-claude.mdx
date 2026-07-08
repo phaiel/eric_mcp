@@ -1,0 +1,157 @@
+---
+title: "How to Connect Sorare to Claude — NFT Fantasy Football via MCP"
+description: "Connect Sorare's GraphQL API to Claude with AnythingMCP. Query cards, players, lineups, and the transfer market in natural language. Bcrypt login + 30-day token caching handled automatically."
+category: "connectors"
+keyword: "Sorare Claude, Sorare AI, Sorare MCP Claude, Sorare GraphQL Claude, fantasy football Claude"
+publishedAt: "2026-05-18"
+adapterSlug: "sorare"
+lang: "en"
+---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HelpCode-ai/anythingmcp/main/content/guides/assets/sorare.svg" alt="Sorare" width="220" />
+</p>
+
+> 💡 **No install? Use [cloud.anythingmcp.com](https://cloud.anythingmcp.com) directly.** Sign in, click **Connectors → Sorare**, paste your Sorare email + password, mint an MCP API key — done. No Docker, no `git clone`, no local server to run. You can skip the local-install steps below and jump straight to the client-wiring section.
+
+## Connect Sorare to Claude
+
+Sorare is the largest NFT fantasy football game, with full GraphQL coverage over cards, players, lineups, and the transfer market. With AnythingMCP, you can drive all of it from Claude Desktop or Claude Code in plain English — no SDK to glue, no token rotation to babysit.
+
+### What you can do
+
+- "Show my current Sorare account and rare-card count."
+- "List the next 5 Messi rare cards on auction under 0.05 ETH."
+- "Find all my cards for Real Madrid players."
+- "Who scored highest in So5 lineup `abc-123`?"
+
+
+<YoutubeEmbed
+  id="B0nNJ3fu7OY"
+  title="Connect Sorare to Claude AI — full setup + live €100 buy strategy (works for ChatGPT, Copilot & OpenClaw too)"
+  lang="en"
+/>
+
+> 🔒 The video is embedded via the **two-click consent pattern** — nothing reaches Google until you press Play.
+
+
+### Prerequisites
+
+- An active Sorare account (we recommend a dedicated, **2FA-disabled** read-only account for headless use).
+- AnythingMCP running locally or on cloud.anythingmcp.com (3-minute setup).
+- Claude Desktop installed.
+
+### Step 1 — Get your Sorare access
+
+1. Sign in to https://sorare.com.
+2. Optionally disable 2FA on a read-only account dedicated to MCP — `signIn` rejects requests without a fresh OTP, and OTPs can't be pre-rotated for a server.
+
+### Step 2 — Install the Sorare adapter
+
+```bash
+git clone https://github.com/HelpCode-ai/anythingmcp.git
+cd anythingmcp && docker compose up -d
+```
+
+Open `http://localhost:3000/connectors/store`, click **Sorare**, and fill in:
+
+| Field | Value |
+|---|---|
+| `SORARE_EMAIL` | your account email |
+| `SORARE_PASSWORD` | your plain password |
+
+Click **Install** — the adapter is now in your catalog with 18 tools (5 GraphQL builtins + 13 dedicated).
+
+### Step 3 — Add the connector in Claude (no code, 4 clicks)
+
+This is the recommended path — works on **claude.ai web** without touching any config file.
+
+1. Open **[claude.ai/customize/connectors](https://claude.ai/customize/connectors)**.
+2. Click **"Add custom connector"**.
+3. Fill in:
+   - **Name:** `Sorare`
+   - **URL:** `https://cloud.anythingmcp.com/mcp`
+   - **Authentication:** Bearer token → paste your MCP API key (from AnythingMCP → **Profile → MCP API Keys → New Key**)
+4. Click **Connect** to authorize.
+
+That's it. All 18 Sorare tools appear in your chat — start typing prompts. The token cache, refresh and bcrypt sign-in are all handled server-side; you never see them.
+
+<details>
+<summary><strong>Advanced: Claude Desktop / Claude Code (JSON / CLI)</strong></summary>
+
+For the **desktop apps**, the web UI doesn't apply — you edit a local config file instead.
+
+**Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%AppData%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "sorare": {
+      "url": "https://cloud.anythingmcp.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop. Sorare tools appear in the 🔧 menu.
+
+**Claude Code** — one CLI command:
+
+```bash
+claude mcp add sorare \
+  --transport http \
+  --url https://cloud.anythingmcp.com/mcp \
+  --header "Authorization: Bearer YOUR_MCP_API_KEY"
+```
+
+Verify with `claude mcp list`.
+
+</details>
+
+### Available tools (18 total)
+
+| Group | Tools |
+|---|---|
+| **Identity / wallet** | `sorare_current_user`, `sorare_wallet_balance`, `sorare_my_trophies_summary`, `sorare_user_by_slug` |
+| **Cards / inventory** | `sorare_list_my_cards`, `sorare_get_card_by_slug`, `sorare_list_player_cards` |
+| **Players / form** | `sorare_search_player`, `sorare_player_recent_scores`, `sorare_player_floor_price` |
+| **Market & auctions** | `sorare_live_sale_offers`, `sorare_token_prices`, `sorare_get_auction`, `sorare_get_lineup` |
+| **Generic GraphQL escape hatch** | `sorare_graphql_schema_url`, `sorare_graphql_schema`, `sorare_graphql_query`, `sorare_graphql_mutation`, `sorare_graphql_subscription` |
+
+
+## Beyond the 18 tools — your AI calls *any* Sorare GraphQL operation
+
+These dedicated tools cover the most common entry points, but every GraphQL connector also ships with **`sorare_graphql_schema`**, **`sorare_graphql_query`**, **`sorare_graphql_mutation`** and **`sorare_graphql_subscription`** — auto-injected escape hatches that let your AI compose **any** operation Sorare's schema supports.
+
+That's the difference between a fixed tool list and a real agent. Ask:
+
+> *"Find 3 Limited cards that are likely to score next gameweek and are 30 %+ under their 30-day average. Top 5 leagues only."*
+
+…and your AI walks the Sorare GraphQL schema, scans `topPerformers`, joins with `liveSingleSaleOffers` for floor prices, cross-references `tokenPrices` for 30-day averages, and hands you a buy list with a reserve plan. All from one prompt, no manual GraphQL on your part.
+
+👉 See a full chat session in the [Sorare launch announcement](./sorare-now-on-anythingmcp) — a real Claude roundtrip composing a €100 buy strategy on its own.
+
+
+### Token rotation, explained
+
+Sorare JWTs last ~30 days. AnythingMCP caches yours encrypted at rest, **re-issues it 24 h before expiry**, and re-logs in on any 401 (without your password ever being read again from disk — the bcrypt hash is recomputed from the freshly fetched salt). You never see an expired-token error.
+
+### FAQ
+
+**Does AnythingMCP store my plain Sorare password?**
+Only inside the encrypted `authConfig` blob (AES-256-GCM). Only the bcrypt hash crosses the wire, only on `signIn`.
+
+**Can I use a Sorare account with 2FA?**
+The `signIn` mutation needs a fresh `otpAttempt` for 2FA accounts, which can't be automated. Use a dedicated read-only account without 2FA.
+
+**Does this work with Claude Code as well as Claude Desktop?**
+Yes — point the `claude_code` MCP server config at the same `http://localhost:4000/mcp` URL.
+
+### Next steps
+
+- [Sorare to MCP — the generic guide](./sorare-to-mcp)
+- [Connect Sorare to ChatGPT](./connect-sorare-to-chatgpt)
+- [Connect Sorare to OpenClaw](./connect-sorare-to-openclaw)

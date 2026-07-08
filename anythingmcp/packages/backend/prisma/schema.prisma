@@ -1,0 +1,785 @@
+// =============================================================================
+// AnythingMCP — Database Schema
+// =============================================================================
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Organization (multi-tenancy) ────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Hourly cap on proxy/unblocker-routed tool calls for this workspace
+  // (cloud only). null = fall back to the PROXY_RATE_LIMIT_DEFAULT env
+  // (which itself defaults to 100). Editable ONLY by a service admin
+  // directly in the DB — there is intentionally no API to change it.
+  proxyRateLimit Int? @map("proxy_rate_limit")
+
+  users            User[]
+  members          OrganizationMember[]
+  connectors       Connector[]
+  mcpServers       McpServerConfig[]
+  roles            Role[]
+  mcpApiKeys       McpApiKey[]
+  invitationTokens InvitationToken[]
+  licenses         License[]
+  orgSettings      OrgSettings[]
+  toolInvocations  ToolInvocation[]
+  kgNodes          KgNode[]
+  kgEdges          KgEdge[]
+  kgConnectorState KgConnectorState[]
+  kgValueSeen      KgValueSeen[]
+  kgSkills         KgSkillSuggestion[]
+
+  @@map("organizations")
+}
+
+// ── Organization Membership (many-to-many with per-org role) ────────────────
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           UserRole     @default(EDITOR)
+  joinedAt       DateTime     @default(now()) @map("joined_at")
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("organization_members")
+}
+
+// ── Per-Organization Settings (key-value store) ─────────────────────────────
+
+model OrgSettings {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String
+  value          String       @db.Text
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@unique([organizationId, key])
+  @@map("org_settings")
+}
+
+// ── User Management ─────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String   @map("password_hash")
+  name           String?
+  role           UserRole @default(EDITOR)
+  emailVerified  Boolean  @default(false) @map("email_verified")
+  organizationId String?  @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Onboarding state — drives the welcome wizard and the email drip.
+  // null `onboardingCompletedAt` = wizard still pending or never seen.
+  // `onboardingReminderCount` is terminal at 2 (24h + 72h emails sent).
+  // `emailMarketingOptOut` hard-blocks drip emails; transactional emails
+  // (password reset, email verification) ignore it.
+  onboardingCompletedAt    DateTime? @map("onboarding_completed_at")
+  onboardingLastReminderAt DateTime? @map("onboarding_last_reminder_at")
+  onboardingReminderCount  Int       @default(0) @map("onboarding_reminder_count")
+  emailMarketingOptOut     Boolean   @default(false) @map("email_marketing_opt_out")
+
+  // Activation milestone: stamped the first time this user records a
+  // SUCCESS tool invocation. null = signed up / built a connector but has
+  // never seen a working call — the cohort the activation drip targets.
+  firstSuccessfulInvocationAt DateTime? @map("first_successful_invocation_at")
+  activationReminderAt        DateTime? @map("activation_reminder_at")
+
+  // MCP tool governance — optional custom role for tool access control
+  mcpRoleId String? @map("mcp_role_id")
+  mcpRole   Role?   @relation(fields: [mcpRoleId], references: [id], onDelete: SetNull)
+
+  memberships              OrganizationMember[]
+  connectors               Connector[]
+  mcpServers               McpServerConfig[]
+  toolInvocations          ToolInvocation[]
+  passwordResetTokens      PasswordResetToken[]
+  mcpApiKeys               McpApiKey[]
+  emailVerificationTokens  EmailVerificationToken[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+// ── Password Reset Tokens ───────────────────────────────────────────────────
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("password_reset_tokens")
+}
+
+// ── Email Verification Tokens ───────────────────────────────────────────────
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique // UUID for link verification
+  code      String    // 6-digit numeric code
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, code])
+  @@map("email_verification_tokens")
+}
+
+// ── Site Settings (key-value store) ─────────────────────────────────────────
+
+model SiteSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("site_settings")
+}
+
+// ── License Management ──────────────────────────────────────────────────────
+
+model License {
+  id             String        @id @default(cuid())
+  licenseKey     String        @unique @map("license_key")
+  plan           String        @default("community")
+  status         String        @default("active")
+  features       Json?
+  expiresAt      DateTime?     @map("expires_at")
+  activatedAt    DateTime?     @map("activated_at")
+  instanceId     String?       @map("instance_id")
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  lastVerifiedAt DateTime?     @map("last_verified_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([organizationId])
+  @@map("licenses")
+}
+
+// ── User Invitation Tokens ──────────────────────────────────────────────────
+
+model InvitationToken {
+  id             String    @id @default(cuid())
+  email          String
+  token          String    @unique
+  role           UserRole  @default(EDITOR)
+  mcpRoleId      String?   @map("mcp_role_id")
+  invitedBy      String    @map("invited_by") // admin user id
+  organizationId String    @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime  @map("expires_at")
+  usedAt         DateTime? @map("used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("invitation_tokens")
+}
+
+// ── MCP Governance: Custom Roles ────────────────────────────────────────────
+
+model Role {
+  id             String        @id @default(cuid())
+  name           String
+  description    String?       @db.Text
+  isSystem       Boolean       @default(false) @map("is_system")
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  users      User[]
+  toolAccess ToolRoleAccess[]
+
+  @@unique([organizationId, name])
+  @@map("roles")
+}
+
+// ── Tool ↔ Role Access (whitelist) ──────────────────────────────────────────
+// If a tool has entries here, only those roles can access it.
+// If a tool has NO entries, it is accessible to everyone.
+
+model ToolRoleAccess {
+  id     String  @id @default(cuid())
+  roleId String  @map("role_id")
+  role   Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  toolId String  @map("tool_id")
+  tool   McpTool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, toolId])
+  @@map("tool_role_access")
+}
+
+// ── Per-User MCP API Keys ───────────────────────────────────────────────────
+
+model McpApiKey {
+  id             String           @id @default(cuid())
+  userId         String           @map("user_id")
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String           @map("organization_id")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mcpServerId    String?          @map("mcp_server_id")
+  mcpServer      McpServerConfig? @relation(fields: [mcpServerId], references: [id], onDelete: SetNull)
+  key            String           @unique
+  name           String           // label: "Claude Desktop", "Cursor", etc.
+  isActive       Boolean          @default(true) @map("is_active")
+  lastUsedAt     DateTime?        @map("last_used_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("mcp_api_keys")
+}
+
+// ── Connector Engine ────────────────────────────────────────────────────────
+
+enum ConnectorType {
+  REST
+  SOAP
+  GRAPHQL
+  MCP
+  DATABASE
+  WEBHOOK
+}
+
+enum AuthType {
+  NONE
+  API_KEY
+  QUERY_AUTH
+  BEARER_TOKEN
+  BASIC_AUTH
+  OAUTH2
+  OAUTH1
+  WS_SECURITY
+  CERTIFICATE
+  CONNECTION_STRING
+  HMAC
+  LOGIN_TOKEN
+}
+
+model Connector {
+  id             String        @id @default(cuid())
+  userId         String        @map("user_id")
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String        @map("organization_id")
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name     String
+  type     ConnectorType
+  baseUrl  String        @map("base_url")
+  isActive Boolean       @default(true) @map("is_active")
+
+  // Path appended to baseUrl when "Test connection" runs. Defaults to "/"
+  // when null but can be set explicitly (auto-deduced from imported OpenAPI
+  // specs when one of /health, /healthz, /_health, /ping, /status is present).
+  healthcheckPath String? @map("healthcheck_path")
+
+  // Authentication
+  authType   AuthType @default(NONE) @map("auth_type")
+  authConfig String?  @map("auth_config") // encrypted JSON
+
+  // Specification (OpenAPI, WSDL, GraphQL schema)
+  specUrl  String? @map("spec_url")
+  specData Json?   @map("spec_data") // stored spec for offline use
+
+  // Custom headers and config
+  headers Json? // default headers as JSON
+  config  Json? // connector-specific configuration
+
+  // Environment variables for runtime interpolation of {{VAR_NAME}} patterns
+  envVars Json? @map("env_vars")
+
+  // AI instructions — contextual guidance for LLMs using this connector's tools
+  instructions String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tools           McpTool[]
+  resources       McpResource[]
+  prompts         McpPrompt[]
+  mcpServers      McpServerConnector[]
+  authCache       ConnectorAuthCache?
+  toolInvocations ToolInvocation[]
+  kgNodes         KgNode[]
+  kgState         KgConnectorState?
+  kgSkills        KgSkillSuggestion[]
+
+  @@index([organizationId])
+  @@map("connectors")
+}
+
+// ── Connector Auth Cache ────────────────────────────────────────────────────
+// Stores short-/long-lived tokens issued by remote auth flows (e.g. LOGIN_TOKEN
+// adapters such as Sorare) so we don't re-login on every tool call.
+// Token is encrypted at rest with the same AES-256-GCM key as authConfig.
+
+model ConnectorAuthCache {
+  id          String    @id @default(cuid())
+  connectorId String    @unique @map("connector_id")
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  token     String    @db.Text // encrypted bearer token
+  metadata  Json?     // free-form: aud claim, refresh tokens, scopes, etc.
+  expiresAt DateTime  @map("expires_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("connector_auth_cache")
+}
+
+// ── MCP Tool Definition ─────────────────────────────────────────────────────
+
+model McpTool {
+  id          String    @id @default(cuid())
+  connectorId String    @map("connector_id")
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String    @db.Text
+  isEnabled   Boolean   @default(true) @map("is_enabled")
+
+  // Route this tool's outbound HTTP request through the configured
+  // proxy / web-unblocker (CONNECTOR_PROXY_URL). Seeded from the
+  // adapter spec's per-tool `useProxy` (default false); the user can
+  // toggle it per tool in the UI. Has no effect when CONNECTOR_PROXY_URL
+  // is unset — the request then goes out directly.
+  useProxy    Boolean   @default(false) @map("use_proxy")
+
+  // OpenAPI operationId, when the tool was generated from an OpenAPI spec.
+  // Used as the primary key for re-imports so that responseMapping and role
+  // assignments survive when the user changes a tool's name in their spec.
+  operationId String? @map("operation_id")
+
+  // Set when a re-import no longer finds this tool in the spec. The tool
+  // stays in the DB (preserving role assignments and invocation history)
+  // but is shown with a "deprecated" badge in the UI.
+  deprecatedAt DateTime? @map("deprecated_at")
+
+  // Parameter schema (JSON Schema / Zod-compatible)
+  parameters Json
+
+  // How to map this tool to the connector's API
+  endpointMapping Json @map("endpoint_mapping")
+  // {
+  //   method: "GET" | "POST" | ...,
+  //   path: "/users/{id}",
+  //   queryParams: { ... },
+  //   bodyMapping: { ... },
+  //   headers: { ... }
+  // }
+
+  // JSON Schema of the tool's response, surfaced to MCP clients as the tool's
+  // outputSchema. Auto-inferred from real responses (Test / observed) or from
+  // the import spec. Null = not known yet (tool served without an output schema).
+  outputSchema Json? @map("output_schema")
+
+  // How to transform the API response for MCP
+  responseMapping Json? @map("response_mapping")
+  // {
+  //   type: "json" | "text",
+  //   template: "...",
+  //   fields: [...]
+  // }
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  invocations ToolInvocation[]
+  roleAccess  ToolRoleAccess[]
+
+  @@unique([connectorId, name])
+  @@map("mcp_tools")
+}
+
+// ── MCP Resource Definition ─────────────────────────────────────────────────
+
+model McpResource {
+  id          String    @id @default(cuid())
+  connectorId String    @map("connector_id")
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  uri         String
+  name        String
+  description String?   @db.Text
+  mimeType    String    @default("application/json") @map("mime_type")
+
+  // How to fetch the resource data
+  fetchConfig Json @map("fetch_config")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([connectorId, uri])
+  @@map("mcp_resources")
+}
+
+// ── MCP Prompt Template ─────────────────────────────────────────────────────
+
+model McpPrompt {
+  id          String    @id @default(cuid())
+  connectorId String    @map("connector_id")
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?   @db.Text
+  template    String    @db.Text
+  arguments   Json?     // expected arguments for the template
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([connectorId, name])
+  @@map("mcp_prompts")
+}
+
+// ── MCP Server Configuration ────────────────────────────────────────────────
+
+model McpServerConfig {
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name         String  @default("Default")
+  slug         String  @default("default")
+  description  String? @db.Text
+  version      String  @default("1.0.0")
+  isActive     Boolean @default(true) @map("is_active")
+  instructions String? @db.Text // custom instructions prepended to composed connector instructions
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  connectors      McpServerConnector[]
+  apiKeys         McpApiKey[]
+  toolInvocations ToolInvocation[]
+  kgSkills        KgSkillSuggestion[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("mcp_server_configs")
+}
+
+// ── MCP Server ↔ Connector (many-to-many) ───────────────────────────────────
+
+model McpServerConnector {
+  id          String          @id @default(cuid())
+  mcpServerId String          @map("mcp_server_id")
+  mcpServer   McpServerConfig @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  connectorId String          @map("connector_id")
+  connector   Connector       @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([mcpServerId, connectorId])
+  @@map("mcp_server_connectors")
+}
+
+// ── Audit Log ───────────────────────────────────────────────────────────────
+
+enum InvocationStatus {
+  SUCCESS
+  ERROR
+  TIMEOUT
+}
+
+model ToolInvocation {
+  id     String @id @default(cuid())
+  toolId String @map("tool_id")
+  tool   McpTool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  userId String? @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  mcpServerId String?          @map("mcp_server_id")
+  mcpServer   McpServerConfig? @relation(fields: [mcpServerId], references: [id], onDelete: SetNull)
+
+  // Denormalized tenant + connector scope (added for per-org analytics and the
+  // knowledge-graph observational layer). Nullable so instance-level / anonymous
+  // self-host calls still persist. Backfilled from tool -> connector.
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String?       @map("connector_id")
+  connector      Connector?    @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+
+  // Optional natural-language user intent that led to this call (captured only
+  // when the workspace enables intent capture). Feeds graph/KB optimization.
+  intent     String? @db.Text
+
+  // Whether this call was routed through the proxy/unblocker (for metering).
+  usedProxy  Boolean @default(false) @map("used_proxy")
+  // Optional metered cost snapshot at write time (micros). Reserved for the
+  // cost/billing layer; null until a BillingRate is configured.
+  costMicros Int?    @map("cost_micros")
+
+  input      Json
+  output     Json?
+  status     InvocationStatus
+  durationMs Int?              @map("duration_ms")
+  error      String?           @db.Text
+
+  clientInfo String? @map("client_info") // JSON: {authMethod, apiKeyName, userEmail, mcpServerName}
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([toolId, createdAt])
+  @@index([userId, createdAt])
+  @@index([mcpServerId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([connectorId, createdAt])
+  @@map("tool_invocations")
+}
+
+// ── OAuth2 Authorization Server ─────────────────────────────────────────────
+
+model OAuthClient {
+  id                      String   @id @default(cuid())
+  clientId                String   @unique @map("client_id")
+  clientSecret            String?  @map("client_secret")
+  clientName              String   @map("client_name")
+  clientDescription       String?  @map("client_description")
+  logoUri                 String?  @map("logo_uri")
+  clientUri               String?  @map("client_uri")
+  developerName           String?  @map("developer_name")
+  developerEmail          String?  @map("developer_email")
+  redirectUris            String[] @map("redirect_uris")
+  grantTypes              String[] @map("grant_types")
+  responseTypes           String[] @map("response_types")
+  tokenEndpointAuthMethod String   @default("none") @map("token_endpoint_auth_method")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("oauth_clients")
+}
+
+model OAuthAuthorizationCode {
+  id                  String   @id @default(cuid())
+  code                String   @unique
+  userId              String   @map("user_id")
+  clientId            String   @map("client_id")
+  redirectUri         String   @map("redirect_uri")
+  codeChallenge       String   @map("code_challenge")
+  codeChallengeMethod String   @map("code_challenge_method")
+  resource            String?
+  scope               String?
+  expiresAt           BigInt   @map("expires_at")
+  userProfileId       String?  @map("user_profile_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_authorization_codes")
+}
+
+model OAuthSession {
+  id                  String   @id @default(cuid())
+  sessionId           String   @unique @map("session_id")
+  state               String
+  clientId            String?  @map("client_id")
+  redirectUri         String?  @map("redirect_uri")
+  codeChallenge       String?  @map("code_challenge")
+  codeChallengeMethod String?  @map("code_challenge_method")
+  oauthState          String?  @map("oauth_state")
+  scope               String?
+  resource            String?
+  expiresAt           BigInt   @map("expires_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_sessions")
+}
+
+model OAuthUserProfile {
+  id          String   @id @default(cuid())
+  profileId   String   @unique @map("profile_id")
+  provider    String
+  externalId  String   @map("external_id")
+  username    String
+  email       String?
+  displayName String?  @map("display_name")
+  avatarUrl   String?  @map("avatar_url")
+  raw         Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, externalId])
+  @@map("oauth_user_profiles")
+}
+
+// ── Knowledge Graph ─────────────────────────────────────────────────────────
+// Per-organization entity graph over a workspace's connectors. Two layers:
+//   STATIC   — derived from tool names + parameter names at install time.
+//   OBSERVED — derived from real tool_invocations (value-flow + identity).
+//   MANUAL   — user-created/confirmed links.
+// Org isolation is enforced at the application layer (every query is scoped by
+// organizationId); RLS is an optional later hardening, not required here.
+
+enum KgSource {
+  STATIC
+  OBSERVED
+  MANUAL
+  LLM
+}
+
+model KgNode {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @map("connector_id")
+  connector      Connector    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  entity       String // normalized singular noun, e.g. "deal"
+  label        String
+  description  String?  @db.Text // human-curated note about the entity; served to AI clients
+  fields       Json     @default("[]") // [{name,type}] — input parameter surface
+  outputFields Json     @default("[]") @map("output_fields") // string[] — field names this entity's tools RETURN (from outputSchema)
+  toolNames    Json     @default("[]") @map("tool_names") // string[] — tools that touch this entity
+  source       KgSource @default(STATIC)
+  confidence   Float    @default(0)
+  observations Int      @default(0)
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  outgoingEdges KgEdge[] @relation("KgEdgeSource")
+  incomingEdges KgEdge[] @relation("KgEdgeTarget")
+
+  @@unique([organizationId, connectorId, entity])
+  @@index([organizationId])
+  @@map("kg_nodes")
+}
+
+model KgEdge {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sourceNodeId String @map("source_node_id")
+  sourceNode   KgNode @relation("KgEdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String @map("target_node_id")
+  targetNode   KgNode @relation("KgEdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  kind          String // references | produces_consumes | same_identity | parent_child
+  matchKey      String?  @map("match_key")
+  evidenceTools Json?    @map("evidence_tools") // string[]
+  note          String?  @db.Text // human/LLM rationale for the link
+  source        KgSource @default(STATIC)
+  confidence    Float    @default(0)
+  observations  Int      @default(0)
+  isManual      Boolean  @default(false) @map("is_manual")
+  status        String   @default("active") // active | suggested | rejected
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@unique([organizationId, sourceNodeId, targetNodeId, kind])
+  @@index([organizationId])
+  @@map("kg_edges")
+}
+
+model KgConnectorState {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @unique @map("connector_id")
+  connector      Connector    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  staticHash     String?   @map("static_hash")
+  lastStaticAt   DateTime? @map("last_static_at")
+  lastObservedAt DateTime? @map("last_observed_at")
+
+  @@index([organizationId])
+  @@map("kg_connector_state")
+}
+
+// LLM-proposed reusable skill/correction inferred from captured user intents
+// (e.g. "daily revenue should include order status 2/3/4, not only 4"). A human
+// reviews each; applying it appends the instruction to the connector's guidance.
+model KgSkillSuggestion {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String?      @map("connector_id")
+  connector      Connector?   @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  // A skill is scoped to a single connector OR to a whole MCP server (which
+  // understands the combined context of all its assigned connectors).
+  mcpServerId    String?          @map("mcp_server_id")
+  mcpServer      McpServerConfig? @relation(fields: [mcpServerId], references: [id], onDelete: SetNull)
+
+  title         String
+  whenToUse     String   @db.Text @map("when_to_use")
+  instruction   String   @db.Text
+  confidence    Float    @default(0)
+  evidenceCount Int      @default(0) @map("evidence_count")
+  status        String   @default("pending") // pending | applied | dismissed
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([organizationId])
+  @@map("kg_skill_suggestions")
+}
+
+// A submitted LLM batch job (cloud cron, cost-saver). Tracks the provider batch
+// id so a later cron run can retrieve results and apply them. `context` maps each
+// request's custom_id to what's needed to apply its result (org, type, ref map).
+model KgLlmBatch {
+  id         String   @id @default(cuid())
+  provider   String
+  externalId String   @map("external_id")
+  status     String   @default("pending") // pending | done
+  context    Json // { [customId]: { type, organizationId, ... } }
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("kg_llm_batches")
+}
+
+// Short-lived, PII-safe index of identifier value HASHES (HMAC with a per-org
+// secret) used to correlate produce→consume / identity across invocations.
+// Stores hashes + field metadata only — never raw values. TTL-pruned.
+model KgValueSeen {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @map("connector_id")
+  valueHash      String       @map("value_hash")
+  entity         String
+  field          String
+  direction      String // input | output
+  seenAt         DateTime @default(now()) @map("seen_at")
+
+  @@index([organizationId, valueHash])
+  @@index([seenAt])
+  @@map("kg_value_seen")
+}

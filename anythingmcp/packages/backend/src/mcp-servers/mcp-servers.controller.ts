@@ -1,0 +1,187 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../common/pagination.dto';
+import { AuthGuard } from '@nestjs/passport';
+import { IsString, IsOptional, IsBoolean, IsArray } from 'class-validator';
+import { McpServersService } from './mcp-servers.service';
+import { LicenseGuardService } from '../license/license-guard.service';
+import { PrismaService } from '../common/prisma.service';
+
+class CreateMcpServerDto {
+  @ApiProperty({ description: 'Human-readable name.', example: 'Sales Workspace' })
+  @IsString()
+  name: string;
+
+  @ApiPropertyOptional({
+    description:
+      'URL-safe slug for the per-server MCP endpoint (e.g. /mcp/<slug>). Auto-generated if omitted.',
+    example: 'sales-workspace',
+  })
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @ApiPropertyOptional({ description: 'Free-text description (UI only).' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Markdown instructions surfaced to MCP clients on initialize(). Concatenated with each assigned connector\'s instructions.',
+  })
+  @IsOptional()
+  @IsString()
+  instructions?: string;
+}
+
+class UpdateMcpServerDto {
+  @ApiPropertyOptional({ description: 'Human-readable name.' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ description: 'URL-safe slug.' })
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @ApiPropertyOptional({ description: 'Free-text description.' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ description: 'Markdown instructions for MCP clients.' })
+  @IsOptional()
+  @IsString()
+  instructions?: string;
+
+  @ApiPropertyOptional({ description: 'Set to false to disable the endpoint without deleting it.' })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+class AssignConnectorsDto {
+  @ApiProperty({
+    description:
+      'Connector IDs to expose under this MCP server. Replaces the existing assignment.',
+    type: [String],
+    example: ['cmob60dvv00c01zrpeujwmnep'],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  connectorIds: string[];
+}
+
+@ApiTags('MCP Servers')
+@ApiBearerAuth()
+@UseGuards(AuthGuard('jwt'))
+@Controller('api/mcp-servers')
+export class McpServersController {
+  constructor(
+    private readonly mcpServersService: McpServersService,
+    private readonly licenseGuard: LicenseGuardService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  private assertOrgMatch(server: any, req: any) {
+    if (server.organizationId !== req.user.organizationId) {
+      throw new NotFoundException('MCP server not found');
+    }
+  }
+
+  private assertCanWrite(server: any, req: any) {
+    this.assertOrgMatch(server, req);
+    if (req.user.role === 'VIEWER') {
+      throw new ForbiddenException('Viewers cannot modify MCP servers');
+    }
+    if (server.userId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new ForbiddenException();
+    }
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List MCP servers for current organization' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: '1..200' })
+  @ApiQuery({ name: 'offset', required: false, type: Number })
+  async list(@Req() req: any, @Query() pagination: PaginationQueryDto) {
+    return this.mcpServersService.findAllByOrg(req.user.organizationId, {
+      limit: pagination.limit,
+      offset: pagination.offset,
+    });
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new MCP server' })
+  async create(@Req() req: any, @Body() dto: CreateMcpServerDto) {
+    await this.licenseGuard.checkCanCreateMcpServer(req.user.sub, req.user.organizationId);
+    return this.mcpServersService.create(req.user.sub, req.user.organizationId, dto);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get MCP server detail' })
+  async get(@Req() req: any, @Param('id') id: string) {
+    const server = await this.mcpServersService.findById(id);
+    if (!server) throw new NotFoundException('MCP server not found');
+    this.assertOrgMatch(server, req);
+    return server;
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update MCP server' })
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateMcpServerDto) {
+    const server = await this.mcpServersService.findById(id);
+    if (!server) throw new NotFoundException('MCP server not found');
+    this.assertCanWrite(server, req);
+    return this.mcpServersService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete MCP server' })
+  async delete(@Req() req: any, @Param('id') id: string) {
+    const server = await this.mcpServersService.findById(id);
+    if (!server) throw new NotFoundException('MCP server not found');
+    this.assertCanWrite(server, req);
+    await this.mcpServersService.delete(id);
+    return { message: 'MCP server deleted' };
+  }
+
+  @Put(':id/connectors')
+  @ApiOperation({ summary: 'Assign connectors to MCP server' })
+  async assignConnectors(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: AssignConnectorsDto,
+  ) {
+    const server = await this.mcpServersService.findById(id);
+    if (!server) throw new NotFoundException('MCP server not found');
+    this.assertCanWrite(server, req);
+
+    // Validate that all connectors belong to the same organization
+    if (dto.connectorIds.length > 0) {
+      const orgCount = await this.prisma.connector.count({
+        where: { id: { in: dto.connectorIds }, organizationId: req.user.organizationId },
+      });
+      if (orgCount !== dto.connectorIds.length) {
+        throw new NotFoundException('One or more connectors not found');
+      }
+    }
+
+    await this.mcpServersService.assignConnectors(id, dto.connectorIds);
+    return { message: 'Connectors assigned' };
+  }
+}

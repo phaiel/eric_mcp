@@ -1,0 +1,41 @@
+{
+  "name": "anythingmcp",
+  "version": "0.3.3",
+  "description": "Self-hosted MCP gateway for REST, SOAP/WSDL, GraphQL and SQL — turn any API into MCP tools for Claude, ChatGPT, Gemini, Copilot and Cursor. 30+ pre-built adapters, on-prem audit log, OAuth2/RBAC. Open source (AGPL-3.0).",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/backend",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev --workspace=packages/backend",
+    "dev:frontend": "npm run dev --workspace=packages/frontend",
+    "build": "npm run build --workspace=packages/backend && npm run build --workspace=packages/frontend",
+    "build:backend": "npm run build --workspace=packages/backend",
+    "build:frontend": "npm run build --workspace=packages/frontend",
+    "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspaces",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose build",
+    "db:migrate": "npm run db:migrate --workspace=packages/backend",
+    "db:seed": "npm run db:seed --workspace=packages/backend"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "https-proxy-agent": "^7.0.6"
+  },
+  "overrides": {
+    "rxjs": "7.8.1"
+  }
+}

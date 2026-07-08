@@ -1,0 +1,170 @@
+# =============================================================================
+# AnythingMCP Cloud — Managed SaaS Deployment
+# =============================================================================
+# Usage:  docker compose -f docker-compose.cloud.yml up -d
+# Domain: cloud.anythingmcp.com
+# =============================================================================
+
+name: amcp-cloud
+
+services:
+
+  # Caddy Reverse Proxy — automatic HTTPS via Let's Encrypt
+  caddy:
+    image: caddy:2-alpine
+    container_name: amcp-cloud-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # NestJS Backend + Next.js Frontend (single container)
+  app:
+    image: helpcodeai/anythingmcp:latest
+    container_name: amcp-cloud-app
+    expose:
+      - "3000"
+      - "4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DEPLOYMENT_MODE=cloud
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN}
+      - DATABASE_URL=postgresql://amcp:${POSTGRES_PASSWORD}@postgres:5432/anythingmcp
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      # Shared secret for the onboarding-reminders GitHub Actions cron.
+      # Must match the repo secret ONBOARDING_CRON_SECRET. Unset = cron
+      # endpoint refuses all calls (self-host default).
+      - CRON_SECRET=${CRON_SECRET:-}
+      - CORS_ORIGIN=https://${DOMAIN}
+      - SERVER_URL=https://${DOMAIN}
+      - FRONTEND_URL=https://${DOMAIN}
+      - MCP_AUTH_MODE=${MCP_AUTH_MODE:-oauth2}
+      # MCP Streamable HTTP response framing. `true` = single-shot
+      # `application/json` responses; `false` = SSE-framed `text/event-stream`.
+      # Microsoft Copilot Studio's MCP client cannot deserialize SSE-framed
+      # responses ("response could not be deserialized as JSON") and requires
+      # plain JSON, so the cloud defaults to JSON. This is spec-compliant and
+      # every compliant client (incl. Claude) handles it; combined with the
+      # default stateless mode (MCP_STATEFUL_SESSIONS unset) it also avoids the
+      # `-32001 Session not found` errors Copilot hits against stateful servers.
+      - MCP_STREAMABLE_JSON_RESPONSE=${MCP_STREAMABLE_JSON_RESPONSE:-true}
+      - ALLOW_OPEN_REGISTRATION=${ALLOW_OPEN_REGISTRATION:-true}
+      - LICENSE_API_URL=${LICENSE_API_URL:-https://anythingmcp.com}
+      # Operator analytics — cloud build only. Leave unset on self-hosted.
+      - GTM_ID=${GTM_ID:-}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-}
+      # Proxy / web-unblocker (e.g. Zyte API proxy mode). Tools with
+      # use_proxy=true route through this; unset = feature off everywhere.
+      - CONNECTOR_PROXY_URL=${CONNECTOR_PROXY_URL:-}
+      - PROXY_RATE_LIMIT_DEFAULT=${PROXY_RATE_LIMIT_DEFAULT:-100}
+      # Internal self-hosted db-rest. When set (cloud), the Deutsche Bahn
+      # connector's public base URL (v6.db.transport.rest) is transparently
+      # routed here. Unset on self-host → connector uses the public API.
+      - DB_REST_INTERNAL_URL=${DB_REST_INTERNAL_URL:-http://db-rest:3000}
+      # Allow the SSRF guard to reach the internal db-rest host (it resolves to
+      # a private docker IP, which the guard blocks by default). Harmless on
+      # self-host (no such host on their network).
+      - SSRF_ALLOWED_HOSTS=${SSRF_ALLOWED_HOSTS:-db-rest}
+      # Knowledge Graph — AI (LLM) features. Off unless KG_LLM_ENABLED=true AND a
+      # provider key are set; the per-workspace toggle still gates actual usage.
+      - KG_LLM_ENABLED=${KG_LLM_ENABLED:-false}
+      - KG_LLM_PROVIDER=${KG_LLM_PROVIDER:-}
+      - KG_LLM_MODEL=${KG_LLM_MODEL:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - KG_LLM_REDACT_INTENTS=${KG_LLM_REDACT_INTENTS:-true}
+      # System (operator) transactional-email fallback — used when a workspace
+      # hasn't set its own SMTP (e.g. Resend). Read only by the email sender,
+      # never exposed to workspace admins. Set these in the droplet .env.
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:17-alpine
+    container_name: amcp-cloud-postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=amcp
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=anythingmcp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amcp -d anythingmcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache — caching & rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: amcp-cloud-redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # db-rest — self-hosted Deutsche Bahn REST wrapper (derhuerst/db-rest).
+  # INTERNAL ONLY: deliberately NO `ports:` mapping → reachable solely as
+  # http://db-rest:3000 from the app over the amcp-cloud_default network, never
+  # from the internet. The deutsche-bahn connector ships pointing at the public
+  # v6.db.transport.rest; in cloud the app rewrites the host to this service via
+  # DB_REST_INTERNAL_URL. Do NOT add a `ports:` entry or a Caddy route.
+  db-rest:
+    image: docker.io/derhuerst/db-rest:6
+    container_name: amcp-cloud-db-rest
+    expose:
+      - "3000"
+    environment:
+      - PORT=3000
+      # Reuse the shared Redis for db-rest's response cache (separate DB index).
+      - REDIS_URL=redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,197 @@
+{
+  "slug": "deutsche-bahn",
+  "name": "Deutsche Bahn Fahrplan",
+  "description": "Query the Deutsche Bahn (DB) timetable via a db-rest instance (the community REST wrapper around DB's public transport APIs). Search stations, look up real-time departures/arrivals, and plan journeys between any two DB stops.",
+  "instructions": "This connector talks to a **db-rest** instance — the community REST wrapper around Deutsche Bahn's public transport APIs. By default it uses the public `v6.db.transport.rest`; AnythingMCP Cloud automatically routes it to an internal self-hosted db-rest for reliability. No authentication required.\n\n**Typical workflow**:\n1. Resolve a station name to a stop `id` (IBNR, e.g. `8000107` = Freiburg(Breisgau) Hbf) with `db_search_locations`.\n2. Pass that `id` to `db_get_departures` / `db_get_arrivals` / `db_get_stop`.\n3. For trip planning, pass `from` and `to` (both IBNR ids) to `db_get_journeys`.\n\n**Field naming** (FPTI / db-rest, English keys):\n- `id` — stable stop id (IBNR). Use it as `id` / `from` / `to`.\n- `when` — real/estimated time (ISO 8601 WITH timezone). `plannedWhen` — scheduled time. `delay` — seconds (`0` = on time, `null` = unknown).\n- `platform` / `plannedPlatform`.\n- `direction` — where the train is heading (departures); arrivals carry `provenance` instead.\n- `line` — `{ name, product }`, product ∈ {nationalExpress (ICE), national (IC/EC), regionalExpress, regional, suburban (S-Bahn), bus, tram, subway, ferry}.\n- `remarks` — service messages / disruptions.\n\n**Times** are ISO 8601 **with** timezone offset (e.g. `2026-05-27T08:55:00+02:00`).\n\n**Departures/arrivals**: omit `when` for boards starting now; `duration` (minutes) sets the window.\n\n**Journeys**: pass either `departure` or `arrival` (ISO 8601); omit both for 'now'. `arrival` = arrive-by.",
+  "region": "de",
+  "category": "transport",
+  "icon": "db",
+  "docsUrl": "https://github.com/derhuerst/db-rest",
+  "requiredEnvVars": [],
+  "connector": {
+    "name": "Deutsche Bahn Fahrplan",
+    "type": "REST",
+    "baseUrl": "https://v6.db.transport.rest",
+    "authType": "NONE",
+    "headers": {
+      "Accept-Language": "de-DE",
+      "User-Agent": "anythingmcp/1.0 (+https://anythingmcp.com)"
+    }
+  },
+  "tools": [
+    {
+      "name": "db_search_locations",
+      "description": "Search Deutsche Bahn stops/stations by name. Returns an array of matches, each with `id` (the stable IBNR id used everywhere else), `name`, `location` (latitude/longitude), and `products` (which services call at this stop). Use the returned `id` as the `id` parameter for db_get_departures, db_get_arrivals, db_get_stop, and as `from`/`to` for db_get_journeys.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search term — station name, city, abbreviation. Examples: 'Freiburg Hbf', 'Berlin Ostbahnhof', 'München Hauptbahnhof', 'Köln'."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max results to return (default: 10).",
+            "default": 10
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/locations",
+        "queryParams": {
+          "query": "$query",
+          "results": "$limit",
+          "addresses": "false",
+          "poi": "false",
+          "profile": "dbnav"
+        }
+      }
+    },
+    {
+      "name": "db_get_stop",
+      "description": "Retrieve a single Deutsche Bahn stop by its `id` (IBNR), returning `name`, `location` (latitude/longitude), and the `products` that call there. Useful when you already have the id but need the station metadata.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The stop's IBNR / id from db_search_locations (e.g. '8000105' = Frankfurt(Main)Hbf, '8000107' = Freiburg(Breisgau) Hbf, '8011160' = Berlin Hbf)."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/stops/{id}",
+        "queryParams": {
+          "profile": "dbnav"
+        }
+      }
+    },
+    {
+      "name": "db_get_departures",
+      "description": "List upcoming departures from a DB stop with live delays. Returns `departures[]` — each entry has `tripId`, `when` (real/estimated ISO time), `plannedWhen`, `delay` (seconds), `platform`/`plannedPlatform`, `direction` (where the train is heading), `line` (`name`, `product`), and `remarks` (disruption messages). `delay` of 0 = on time, `null` = unknown.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The stop's IBNR / id (e.g. '8000107' for Freiburg Hbf)."
+          },
+          "when": {
+            "type": "string",
+            "description": "Optional ISO 8601 reference time (with timezone), e.g. '2026-05-27T08:30:00+02:00'. Omit for departures starting now."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Optional window in minutes to look ahead (default: 10).",
+            "default": 10
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/stops/{id}/departures",
+        "queryParams": {
+          "when": "$when",
+          "duration": "$duration",
+          "profile": "dbnav"
+        }
+      }
+    },
+    {
+      "name": "db_get_arrivals",
+      "description": "List upcoming arrivals at a DB stop with live delays. Same response shape as db_get_departures (`arrivals[]`), but each entry carries `provenance` (the train's origin) instead of `direction`, and `when`/`plannedWhen` are arrival times.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The stop's IBNR / id (e.g. '8011160' for Berlin Hbf)."
+          },
+          "when": {
+            "type": "string",
+            "description": "Optional ISO 8601 reference time (with timezone). Omit for arrivals starting now."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Optional window in minutes to look ahead (default: 10).",
+            "default": 10
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/stops/{id}/arrivals",
+        "queryParams": {
+          "when": "$when",
+          "duration": "$duration",
+          "profile": "dbnav"
+        }
+      }
+    },
+    {
+      "name": "db_get_journeys",
+      "description": "Plan one or more itineraries between two DB stops. Returns `journeys[]` — each journey has `legs[]`; each leg includes `origin`/`destination` (stop `id`, `name`), `departure`/`plannedDeparture`, `arrival`/`plannedArrival`, `departurePlatform`/`arrivalPlatform`, `line` (`name`, `product`), and `remarks` (alerts). Use IBNR `id` for `from` and `to`. Pass either `departure` (depart-at) or `arrival` (arrive-by); omit both for 'now'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Origin stop's IBNR / id (e.g. '8000107' for Freiburg Hbf)."
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination stop's IBNR / id (e.g. '8011160' for Berlin Hbf)."
+          },
+          "departure": {
+            "type": "string",
+            "description": "Depart-at time as ISO 8601 with timezone, e.g. '2026-05-27T08:00:00+02:00'. Omit for 'now'. Do not set together with `arrival`."
+          },
+          "arrival": {
+            "type": "string",
+            "description": "Arrive-by time as ISO 8601 with timezone. Use this instead of `departure` for 'arrive before' queries."
+          },
+          "results": {
+            "type": "number",
+            "description": "Max number of itineraries to return (default: 4).",
+            "default": 4
+          },
+          "bike": {
+            "type": "boolean",
+            "description": "If true, only return connections that allow bicycle carriage. Default: false."
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/journeys",
+        "queryParams": {
+          "from": "$from",
+          "to": "$to",
+          "departure": "$departure",
+          "arrival": "$arrival",
+          "results": "$results",
+          "bike": "$bike",
+          "profile": "dbnav"
+        }
+      }
+    }
+  ]
+}

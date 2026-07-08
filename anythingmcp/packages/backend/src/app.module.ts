@@ -1,0 +1,184 @@
+import { Module, MiddlewareConsumer, NestModule, Logger, ClassSerializerInterceptor } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { join } from 'path';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import {
+  McpModule,
+  McpTransportType,
+  McpAuthModule,
+  McpAuthJwtGuard,
+} from '@rekog/mcp-nest';
+import { AuthModule } from './auth/auth.module';
+import { ConnectorsModule } from './connectors/connectors.module';
+import { McpServerModule } from './mcp-server/mcp-server.module';
+
+import { UsersModule } from './users/users.module';
+import { AuditModule } from './audit/audit.module';
+import { HealthModule } from './health/health.module';
+import { SettingsModule } from './settings/settings.module';
+import { RolesModule } from './roles/roles.module';
+import { KgModule } from './knowledge-graph/kg.module';
+import { McpServersModule } from './mcp-servers/mcp-servers.module';
+import { LicenseModule } from './license/license.module';
+import { PrismaModule } from './common/prisma.module';
+import { RedisModule } from './common/redis.module';
+import { McpAuthMiddleware } from './auth/mcp-auth.middleware';
+import { McpRateLimitMiddleware } from './auth/mcp-rate-limit.middleware';
+import { ClientCredentialsMiddleware } from './auth/client-credentials.middleware';
+import { OAuthRegisterGuardMiddleware } from './auth/oauth-register-guard.middleware';
+import { LocalOAuthProvider } from './auth/local-oauth.provider';
+import { PrismaOAuthStore } from './auth/prisma-oauth.store';
+import { PrismaService } from './common/prisma.service';
+import { OAuthUrlRewriteInterceptor } from './auth/oauth-url-rewrite.interceptor';
+import { EmailVerifiedGuard } from './auth/email-verified.guard';
+import { AdaptersModule } from './adapters/adapters.module';
+import { OrganizationsModule } from './organizations/organizations.module';
+import { CloudModule } from './ee/cloud/cloud.module';
+import { getRequiredSecret } from './common/secrets.util';
+import { AppLoggerModule } from './common/logger.module';
+
+// Determine deployment and auth mode from env
+const useCloud = process.env.DEPLOYMENT_MODE === 'cloud';
+const cloudImports = useCloud ? [CloudModule] : [];
+
+// Determine auth mode from env
+const authMode = process.env.MCP_AUTH_MODE || 'none';
+const useOAuth = authMode === 'oauth2' || authMode === 'both';
+
+// Build module imports conditionally
+const conditionalImports: any[] = [];
+
+if (useOAuth) {
+  const serverUrl = process.env.SERVER_URL || 'http://localhost:4000';
+  const jwtSecret = getRequiredSecret('JWT_SECRET', process.env.JWT_SECRET);
+
+  conditionalImports.push(
+    McpAuthModule.forRoot({
+      provider: LocalOAuthProvider,
+      clientId: 'local',
+      clientSecret: 'local',
+      jwtSecret,
+      serverUrl,
+      resource: `${serverUrl}/mcp`,
+      storeConfiguration: {
+        type: 'custom' as const,
+        store: new PrismaOAuthStore(new PrismaService()),
+      },
+      authorizationServerMetadata: {
+        grantTypesSupported: [
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+        ],
+      },
+    }),
+  );
+}
+
+@Module({
+  imports: [
+    // Configuration
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [
+        join(__dirname, '..', '..', '..', '..', '.env'),
+        join(__dirname, '..', '..', '..', '.env'),
+        '.env',
+      ],
+    }),
+
+    // Structured logging — replaces the default NestJS console logger with
+    // Pino, attaches a request-scoped correlation id, and redacts auth headers.
+    AppLoggerModule,
+
+    // Database
+    PrismaModule,
+
+    // Cache
+    RedisModule,
+
+    // Rate limiting — single default bucket (100 req/min). Sensitive routes
+    // (login, register, password reset) override this with @Throttle() so
+    // they can have a much stricter cap without throttling general traffic.
+    // Note: do NOT add additional named buckets here. With nestjs/throttler
+    // v6, ALL configured buckets apply to every request, which means a
+    // strict bucket would also throttle the MCP endpoints.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+
+    // MCP Server (dynamic tools registered by McpServerModule)
+    McpModule.forRoot({
+      name: 'anythingmcp',
+      version: '0.1.0',
+      transport: McpTransportType.STREAMABLE_HTTP,
+      mcpEndpoint: '/mcp',
+      ...(useOAuth ? { guards: [McpAuthJwtGuard] } : {}),
+      streamableHttp: {
+        enableJsonResponse: true,
+      },
+    }),
+
+    // OAuth2 module (conditionally loaded)
+    ...conditionalImports,
+
+    // Core modules
+    AuthModule,
+    UsersModule,
+    ConnectorsModule,
+    AdaptersModule,
+    McpServerModule,
+
+    OrganizationsModule,
+    AuditModule,
+    HealthModule,
+    SettingsModule,
+    RolesModule,
+    KgModule,
+    McpServersModule,
+    LicenseModule,
+
+    // Cloud-specific modules (conditionally loaded)
+    ...cloudImports,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: EmailVerifiedGuard },
+    ...(useOAuth
+      ? [{ provide: APP_INTERCEPTOR, useClass: OAuthUrlRewriteInterceptor }]
+      : []),
+  ],
+})
+export class AppModule implements NestModule {
+  private readonly logger = new Logger(AppModule.name);
+
+  constructor(private readonly configService: ConfigService) {}
+
+  configure(consumer: MiddlewareConsumer) {
+    const mode = this.configService.get<string>('MCP_AUTH_MODE') || 'none';
+    this.logger.log(`MCP Auth Mode: ${mode}`);
+
+    // Apply client credentials middleware on /token for OAuth2 mode
+    if (mode === 'oauth2' || mode === 'both') {
+      consumer
+        .apply(ClientCredentialsMiddleware)
+        .forRoutes('token');
+    }
+
+    // Reject malformed POST /register bodies before they reach the
+    // upstream @rekog/mcp-nest controller (which would otherwise crash
+    // with a 500 on undefined.redirect_uris). Always on — the guard is
+    // a pure body-shape validator and a no-op for valid JSON requests.
+    consumer.apply(OAuthRegisterGuardMiddleware).forRoutes('register');
+
+    // Apply legacy auth middleware for MCP endpoint
+    if (mode === 'legacy' || mode === 'both') {
+      consumer
+        .apply(McpAuthMiddleware, McpRateLimitMiddleware)
+        .forRoutes('mcp');
+    } else if (mode === 'none') {
+      // No auth — only rate limiting
+      consumer.apply(McpRateLimitMiddleware).forRoutes('mcp');
+    }
+    // For 'oauth2' mode: McpAuthJwtGuard handles auth (applied by McpAuthModule)
+  }
+}

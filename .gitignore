@@ -1,0 +1,16 @@
+# Secrets — never commit
+anythingmcp/.env
+.env
+.env.*
+
+# Dependencies and build
+anythingmcp/node_modules/
+anythingmcp/packages/*/node_modules/
+anythingmcp/packages/*/.next/
+
+# OS / editor
+.DS_Store
+.cursor/
+
+# Local MCP config (contains bearer tokens)
+.cursor/mcp.json

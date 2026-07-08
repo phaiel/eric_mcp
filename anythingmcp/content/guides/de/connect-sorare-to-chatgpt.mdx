@@ -1,0 +1,129 @@
+---
+title: "Sorare mit ChatGPT verbinden — Fantasy Football für GPT"
+description: "Sorares NFT-Fantasy-Football-Daten via MCP-Connector in AnythingMCP zu ChatGPT bringen. Bcrypt-Login und 30-Tage-JWT-Caching sind automatisiert."
+category: "connectors"
+keyword: "Sorare ChatGPT, Sorare GPT, Sorare MCP ChatGPT, Sorare KI ChatGPT, Fantasy Football ChatGPT"
+publishedAt: "2026-05-18"
+adapterSlug: "sorare"
+lang: "de"
+---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HelpCode-ai/anythingmcp/main/content/guides/assets/sorare.svg" alt="Sorare" width="220" />
+</p>
+
+> 💡 **Keine Installation? Nutze [cloud.anythingmcp.com](https://cloud.anythingmcp.com) direkt.** Einloggen, **Connectors → Sorare** klicken, Sorare-E-Mail + -Passwort einfügen, MCP-API-Key erzeugen — fertig. Kein Docker, kein `git clone`, kein lokaler Server. Du kannst die lokalen Installationsschritte unten überspringen und direkt zur Client-Konfiguration weitergehen.
+
+## Sorare mit ChatGPT verbinden
+
+ChatGPT unterstützt das **Model Context Protocol** in Custom Connectors und in der Developer-Tools-Oberfläche. Mit AnythingMCP als Brücke zur Sorare-GraphQL-API kannst du Karten, Spieler, Aufstellungen und Transfermarkt direkt aus einer ChatGPT-Konversation abfragen — ohne OAuth-Tanz und ohne Token-Babysitting.
+
+### Was du tun kannst
+
+- "Hol meine aktuelle Sorare-Aufstellung und sag mir, wo ich diese Game Week schwach bin."
+- "Liste jede seltene Vinícius-Júnior-Karte aus Saison 2024."
+- "Wie ist der aktuelle Floor-Preis für Limited-Bukayo-Saka-Karten?"
+- "Welche Auktionen für Liverpool-Spieler enden in den nächsten 90 Minuten?"
+
+
+<YoutubeEmbed
+  id="B0nNJ3fu7OY"
+  title="Sorare mit Claude AI verbinden — komplettes Setup + Live-100-€-Kaufstrategie (funktioniert auch in ChatGPT, Copilot & OpenClaw)"
+  lang="de"
+/>
+
+> 🔒 Das Video ist **DSGVO-konform per Zwei-Klick-Lösung** eingebettet — vor deinem Klick auf Play geht kein Byte an Google.
+
+
+### Voraussetzungen
+
+- Aktives Sorare-Konto (dediziertes Read-only-Konto empfohlen; **2FA deaktivieren** für Headless-Einsatz).
+- AnythingMCP lokal oder auf cloud.anythingmcp.com.
+- ChatGPT Plus / Team / Enterprise (Custom Connectors sind bezahlten Tiers vorbehalten).
+
+### Schritt 1 — Sorare-Zugang
+
+1. Bei https://sorare.com einloggen.
+2. (Optional) dediziertes Read-only-Konto ohne 2FA anlegen.
+
+### Schritt 2 — Sorare-Adapter auf cloud.anythingmcp.com installieren (kein Code)
+
+1. Auf **[cloud.anythingmcp.com](https://cloud.anythingmcp.com)** einloggen.
+2. **Connectors → Sorare → Install** öffnen.
+3. Einfügen:
+   - `SORARE_EMAIL` — deine Sorare-Kontomail
+   - `SORARE_PASSWORD` — Klartext-Passwort (wird vor dem Login lokal bcrypt-gehasht; nie unverschlüsselt gespeichert)
+4. MCP-API-Key erzeugen unter **Profile → MCP API Keys → New Key**. Kopieren.
+
+Es gibt kein AUD-Feld — der Adapter setzt den JWT-Audience-Claim fest auf `anythingmcp`.
+
+### Schritt 3 — Connector in ChatGPT einfügen (kein Code, 4 Klicks)
+
+1. In ChatGPT **Einstellungen → Connectors → Custom Connector hinzufügen** öffnen.
+2. Eintragen:
+   - **Name:** `Sorare`
+   - **URL:** `https://cloud.anythingmcp.com/mcp`
+   - **Authentication:** Bearer Token → MCP-API-Key aus Schritt 2 einfügen
+3. **Speichern** klicken.
+4. ChatGPT entdeckt automatisch alle 18 Sorare-Tools und zeigt sie in der Connector-Liste.
+
+Fertig — los geht's. ChatGPT kann nur **öffentliche HTTPS-URLs** erreichen, und genau das ist `cloud.anythingmcp.com`.
+
+<details>
+<summary><strong>Fortgeschritten: AnythingMCP selbst hosten und für ChatGPT exponieren</strong></summary>
+
+Wenn du AnythingMCP lieber auf eigener Hardware betreibst, brauchst du trotzdem eine öffentliche HTTPS-URL, damit ChatGPT die Instanz erreicht.
+
+```bash
+git clone https://github.com/HelpCode-ai/anythingmcp.git
+cd anythingmcp && docker compose up -d
+```
+
+`http://localhost:3000/connectors/store` öffnen, Sorare installieren, Key erzeugen, dann Port 4000 via Cloudflare Tunnel, ngrok oder eigenem TLS-Reverse-Proxy exponieren. Diese HTTPS-URL im ChatGPT-Connector-Formular statt `cloud.anythingmcp.com` verwenden.
+
+</details>
+
+### Verfügbare Tools (18 insgesamt)
+
+| Gruppe | Tools |
+|---|---|
+| **Identität / Wallet** | `sorare_current_user`, `sorare_wallet_balance`, `sorare_my_trophies_summary`, `sorare_user_by_slug` |
+| **Karten / Inventar** | `sorare_list_my_cards`, `sorare_get_card_by_slug`, `sorare_list_player_cards` |
+| **Spieler / Form** | `sorare_search_player`, `sorare_player_recent_scores`, `sorare_player_floor_price` |
+| **Markt & Auktionen** | `sorare_live_sale_offers`, `sorare_token_prices`, `sorare_get_auction`, `sorare_get_lineup` |
+| **Generic GraphQL Notausgang** | `sorare_graphql_schema_url`, `sorare_graphql_schema`, `sorare_graphql_query`, `sorare_graphql_mutation`, `sorare_graphql_subscription` |
+
+
+## Mehr als die 18 Tools — deine KI ruft *jeden* Sorare-GraphQL-Endpoint auf
+
+Diese dedizierten Tools decken die häufigsten Einstiegspunkte ab, aber jeder GraphQL-Connector liefert zusätzlich **`sorare_graphql_schema`**, **`sorare_graphql_query`**, **`sorare_graphql_mutation`** und **`sorare_graphql_subscription`** — auto-injizierte Notausgänge, mit denen deine KI **jede** Operation komponieren kann, die Sorares Schema unterstützt.
+
+Das ist der Unterschied zwischen einer festen Tool-Liste und einem echten Agent. Frag:
+
+> *"Finde 3 Limited-Karten, die nächsten Spieltag punkten und 30 %+ unter ihrem 30-Tage-Schnitt liegen. Nur Top-5-Ligen."*
+
+…und deine KI durchsucht Sorares GraphQL-Schema, scannt `topPerformers`, joined mit `liveSingleSaleOffers` für die Floor-Preise, gleicht mit `tokenPrices` über 30 Tage ab und gibt dir eine Kaufliste mit Reserveplan. Alles aus einem Prompt, ohne dass du manuell GraphQL schreiben musst.
+
+👉 Eine komplette Chat-Session findest du im [Sorare-Launch-Announcement](./sorare-now-on-anythingmcp) — ein echter Claude-Roundtrip, der eigenständig eine 100 €-Kaufstrategie baut.
+
+
+### Token-Rotation
+
+JWTs leben ~30 Tage. AnythingMCP erneuert sie 24 h vor Ablauf und bei jedem 401 — ChatGPT-Aufrufe sehen nie ein stale Token.
+
+### FAQ
+
+**ChatGPT meldet "connector unreachable" — was tun?**
+ChatGPT sieht `localhost` nicht. Entweder auf `cloud.anythingmcp.com` deployen oder die lokale Instanz mit Cloudflare Tunnel proxen.
+
+**Brauche ich ChatGPT Enterprise?**
+Custom Connectors sind in Plus, Team und Enterprise verfügbar.
+
+**Kann ich den Sorare-Connector read-only machen?**
+Ja — Mutation-Tools aus dem Adapter entfernen (oder in AnythingMCP eine Rolle vergeben, die nur die `sorare_get_*` / `sorare_list_*` / `sorare_current_user`-Tools freigibt).
+
+### Nächste Schritte
+
+- [Sorare mit Claude verbinden](./connect-sorare-to-claude)
+- [Sorare mit OpenClaw verbinden](./connect-sorare-to-openclaw)
+- [Sorare an MCP anbinden — generischer Leitfaden](./sorare-to-mcp)

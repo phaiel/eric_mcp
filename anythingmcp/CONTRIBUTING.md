@@ -1,0 +1,209 @@
+# Contributing to AnythingMCP
+
+Thank you for your interest in contributing to AnythingMCP! This guide will help you get started.
+
+## Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [License](#license)
+- [Getting Started](#getting-started)
+- [Development Setup](#development-setup)
+- [Making Changes](#making-changes)
+- [Pull Request Process](#pull-request-process)
+- [Reporting Bugs](#reporting-bugs)
+- [Requesting Features](#requesting-features)
+- [Code Style](#code-style)
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold this code.
+
+## License
+
+AnythingMCP is open source under the [GNU Affero General Public License v3](LICENSE) (AGPL-3.0-only). Code under `ee/` directories is licensed separately under the [AnythingMCP Commercial License](packages/backend/src/ee/LICENSE). See the [License FAQ](docs/license-faq.md) for a plain-language explanation.
+
+### Contributor License Agreement (CLA)
+
+Before we can merge your first pull request, you must sign our
+[Contributor License Agreement](CLA.md). An automated check on your PR
+will ask you to sign by posting a comment — it takes one click and
+only needs to be done once.
+
+**You retain copyright over your contributions.** The CLA grants
+helpcode.ai GmbH a license to use and re-license your contribution;
+this is what allows us to offer AnythingMCP under both the AGPL and a
+commercial license while keeping a single codebase.
+
+## AI-assisted contributions
+
+We use AI assistants (Claude Code, GitHub Copilot, etc.) in our own development and we welcome contributions made with the same tools. The standards are the same as any human contribution:
+
+- You take responsibility for the code you submit — review every line before opening a PR.
+- The catalog test suite (`npm test`) must pass.
+- Adapter JSON must validate against [`docs/tool-definition.md`](docs/tool-definition.md).
+- Don't paste AI output blindly into the PR description; write the *why* in your own words.
+
+We will not refuse a PR because it was AI-assisted, and we will not single it out either. See [AUTHORS.md](AUTHORS.md) for how we use AI ourselves.
+
+## Getting Started
+
+1. **Fork** the repository on GitHub
+2. **Clone** your fork locally
+3. **Create a branch** from `main` for your changes
+4. **Make your changes** (see [Development Setup](#development-setup))
+5. **Test** your changes
+6. **Push** to your fork and open a **Pull Request**
+
+## Development Setup
+
+### Prerequisites
+
+- Node.js 22+
+- npm 9+
+- Docker and Docker Compose (for PostgreSQL)
+
+### Quick Setup
+
+```bash
+git clone https://github.com/<your-username>/anythingmcp.git
+cd anythingmcp
+./setup.sh    # Choose "Local development" mode
+npm run dev
+```
+
+### Manual Setup
+
+```bash
+cp .env.example .env
+# Edit .env with local development values
+
+# Start PostgreSQL
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+
+# Install dependencies
+npm install
+
+# Symlink .env for Prisma and Next.js
+ln -sf ../../.env packages/backend/.env
+ln -sf ../../.env packages/frontend/.env
+
+# Run migrations
+cd packages/backend
+export $(grep -v '^#' ../../.env | grep -v '^$' | xargs)
+npx prisma migrate dev
+npx prisma generate
+cd ../..
+
+# Start dev servers
+npm run dev
+```
+
+### Running Tests
+
+```bash
+npm test                          # All tests
+cd packages/backend && npm test   # Backend only
+```
+
+## Making Changes
+
+### Branch Naming
+
+Use descriptive branch names:
+
+- `fix/description` — Bug fixes
+- `feat/description` — New features
+- `docs/description` — Documentation changes
+- `refactor/description` — Code refactoring
+
+### Commit Messages
+
+Write clear, concise commit messages:
+
+- Use the imperative mood ("Add feature", not "Added feature")
+- Keep the subject line under 72 characters
+- Reference issues when applicable (e.g., "Fix #42")
+
+### What We Accept
+
+- Bug fixes with tests
+- New connector engines or parsers
+- Documentation improvements
+- Performance improvements
+- UI/UX enhancements
+- New import format parsers (OpenAPI, Postman, cURL, etc.)
+
+### What Needs Discussion First
+
+Open an issue before starting work on:
+
+- New connector types
+- Changes to the authentication system
+- Database schema changes
+- Breaking API changes
+- Large refactoring efforts
+
+## Pull Request Process
+
+1. **Update documentation** if your change affects user-facing behavior
+2. **Add tests** for new functionality
+3. **Ensure all tests pass** (`npm test`)
+4. **Keep PRs focused** — one feature or fix per PR
+5. **Fill out the PR template** with a clear description
+
+### Review Process
+
+- A maintainer will review your PR, usually within a few days
+- You may be asked to make changes — this is normal and expected
+- Once approved, a maintainer will merge your PR
+
+## Reporting Bugs
+
+Use the [Bug Report](https://github.com/HelpCode-ai/anythingmcp/issues/new?template=bug_report.yml) issue template. Include:
+
+- Steps to reproduce
+- Expected vs actual behavior
+- Environment details (OS, Node.js version, Docker version)
+- Relevant logs or screenshots
+
+## Requesting Features
+
+Use the [Feature Request](https://github.com/HelpCode-ai/anythingmcp/issues/new?template=feature_request.yml) issue template. Include:
+
+- The problem you're trying to solve
+- Your proposed solution
+- Alternatives you've considered
+
+## Code Style
+
+### TypeScript
+
+- Use TypeScript strict mode
+- Prefer `const` over `let`
+- Use meaningful variable names
+- Follow the existing NestJS patterns (modules, services, controllers)
+
+### Backend (NestJS)
+
+- One module per feature area
+- Services handle business logic, controllers handle HTTP
+- Use DTOs with `class-validator` for input validation
+- Write unit tests for services (`.spec.ts` files alongside source)
+
+### Frontend (Next.js)
+
+- Use the App Router pattern
+- Prefer server components where possible
+- Use Tailwind CSS for styling
+- Follow existing component patterns
+
+### General
+
+- No unused imports or variables
+- No `console.log` in production code (use NestJS `Logger`)
+- Keep functions focused and small
+- Add comments only where the "why" isn't obvious
+
+---
+
+Thank you for contributing!
