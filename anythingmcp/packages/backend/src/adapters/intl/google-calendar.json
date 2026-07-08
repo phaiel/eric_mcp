@@ -1,0 +1,328 @@
+{
+  "slug": "google-calendar",
+  "name": "Google Calendar",
+  "description": "Read and write Google Calendar — list subscribed calendars (including shared family calendars), fetch events, create/update/delete events. 6 tools, OAuth2 user auth.",
+  "instructions": "This connector uses the Google Calendar API v3 (developers.google.com/calendar).\n\n**Shared calendars (e.g. your wife's):** OAuth runs as **you**. Any calendar visible in your Google Calendar sidebar — including calendars shared with you — appears in `gcal_list_calendars`. You can **read** any calendar you can see; **writes** require `accessRole` of `writer` or `owner` on that calendar (you can create events on your primary; on her calendar only if she granted edit access).\n\n**Setup — Google Cloud (one-time)**:\n1. https://console.cloud.google.com → create or pick a project.\n2. **APIs & Services → Library** → enable **Google Calendar API**.\n3. **OAuth consent screen** → External (or Internal if Workspace) → add scope `https://www.googleapis.com/auth/calendar` → add yourself as a **Test user** while the app is in Testing.\n4. **Credentials → Create credentials → OAuth client ID** → type **Web application**.\n5. **Authorized redirect URI** (exact):\n   `https://personal-os-mcp.onrender.com/api/mcp-oauth/callback`\n6. Copy **Client ID** and **Client secret** into the import form as `GOOGLE_CALENDAR_CLIENT_ID` and `GOOGLE_CALENDAR_CLIENT_SECRET`.\n7. Import adapter → **Authorize with Provider** → sign in with your Google account.\n\n**Scope:** `https://www.googleapis.com/auth/calendar` — full read/write on calendars you can access in the Google Calendar UI.\n\n**Typical read flow:**\n1. `gcal_list_calendars` — find `id`, `summary`, `accessRole`, `primary`.\n2. `gcal_list_events` — events for `primary` or a shared calendar id.\n\n**Typical write flow:**\n1. Confirm `accessRole` is `writer` or `owner` on the target calendar.\n2. `gcal_create_event` — summary + start/end (timed or all-day).\n3. `gcal_update_event` / `gcal_delete_event` — need `eventId` from list/get.\n\n**calendarId:** use `primary` or the `id` from `gcal_list_calendars` (often an email for shared calendars).\n\n**Re-auth after scope change:** if you previously authorized with readonly scope, delete the connector OAuth tokens (re-authorize) so Google issues a token with the new scope.",
+  "region": "intl",
+  "category": "productivity",
+  "icon": "google-calendar",
+  "docsUrl": "https://developers.google.com/calendar/api/v3/reference",
+  "requiredEnvVars": [
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET"
+  ],
+  "connector": {
+    "name": "Google Calendar",
+    "type": "REST",
+    "baseUrl": "https://www.googleapis.com/calendar/v3",
+    "authType": "OAUTH2",
+    "authConfig": {
+      "clientId": "{{GOOGLE_CALENDAR_CLIENT_ID}}",
+      "clientSecret": "{{GOOGLE_CALENDAR_CLIENT_SECRET}}",
+      "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+      "tokenUrl": "https://oauth2.googleapis.com/token",
+      "scopes": "https://www.googleapis.com/auth/calendar",
+      "authorizationParams": {
+        "access_type": "offline",
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "gcal_list_calendars",
+      "description": "List all calendars on the authenticated user's calendar list — primary calendar, your secondary calendars, and calendars shared with you (family, work, etc.). Returns id, summary, description, timeZone, accessRole, primary, selected.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "maxResults": {
+            "type": "integer",
+            "description": "Max entries per page (default 100, max 250)."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response."
+          },
+          "showHidden": {
+            "type": "boolean",
+            "description": "Include hidden calendar list entries."
+          },
+          "minAccessRole": {
+            "type": "string",
+            "description": "Filter: freeBusyReader, reader, writer, or owner."
+          }
+        }
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/users/me/calendarList",
+        "queryParams": {
+          "maxResults": "$maxResults",
+          "pageToken": "$pageToken",
+          "showHidden": "$showHidden",
+          "minAccessRole": "$minAccessRole"
+        }
+      }
+    },
+    {
+      "name": "gcal_list_events",
+      "description": "List events on one calendar. Use calendarId=primary for your main calendar, or an id from gcal_list_calendars (including a shared family calendar).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar id from gcal_list_calendars, or 'primary'."
+          },
+          "timeMin": {
+            "type": "string",
+            "description": "ISO 8601 lower bound (inclusive), e.g. 2026-07-08T00:00:00Z."
+          },
+          "timeMax": {
+            "type": "string",
+            "description": "ISO 8601 upper bound (exclusive)."
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max events (default 50, max 2500)."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Pagination token."
+          },
+          "singleEvents": {
+            "type": "boolean",
+            "description": "Expand recurring events into instances (default true)."
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "startTime or updated (requires singleEvents=true for startTime)."
+          },
+          "q": {
+            "type": "string",
+            "description": "Free-text search on title, description, location, attendees."
+          }
+        },
+        "required": ["calendarId"]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/calendars/{calendarId}/events",
+        "queryParams": {
+          "timeMin": "$timeMin",
+          "timeMax": "$timeMax",
+          "maxResults": "$maxResults",
+          "pageToken": "$pageToken",
+          "singleEvents": "$singleEvents",
+          "orderBy": "$orderBy",
+          "q": "$q"
+        }
+      }
+    },
+    {
+      "name": "gcal_get_event",
+      "description": "Fetch a single event by calendarId + eventId.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar id or 'primary'."
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event id from gcal_list_events."
+          }
+        },
+        "required": ["calendarId", "eventId"]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/calendars/{calendarId}/events/{eventId}"
+      }
+    },
+    {
+      "name": "gcal_create_event",
+      "description": "Create an event on a calendar. Requires writer or owner accessRole on that calendar. For timed events pass startDateTime + endDateTime (+ optional timeZone). For all-day events pass startDate + endDate (YYYY-MM-DD, end exclusive).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar id or 'primary'."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Event title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description."
+          },
+          "location": {
+            "type": "string",
+            "description": "Event location."
+          },
+          "startDateTime": {
+            "type": "string",
+            "description": "Timed start — ISO 8601, e.g. 2026-07-08T10:00:00-04:00."
+          },
+          "endDateTime": {
+            "type": "string",
+            "description": "Timed end — ISO 8601."
+          },
+          "startDate": {
+            "type": "string",
+            "description": "All-day start — YYYY-MM-DD."
+          },
+          "endDate": {
+            "type": "string",
+            "description": "All-day end — YYYY-MM-DD (exclusive)."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA timezone for timed events, e.g. America/New_York."
+          },
+          "attendees": {
+            "type": "array",
+            "description": "Attendee objects, e.g. [{\"email\":\"person@example.com\"}].",
+            "items": { "type": "object" }
+          },
+          "sendUpdates": {
+            "type": "string",
+            "description": "all, externalOnly, or none — whether to email attendees."
+          }
+        },
+        "required": ["calendarId", "summary"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/calendars/{calendarId}/events",
+        "queryParams": {
+          "sendUpdates": "$sendUpdates"
+        },
+        "bodyMapping": {
+          "summary": "$summary",
+          "description": "$description",
+          "location": "$location",
+          "start": {
+            "dateTime": "$startDateTime",
+            "date": "$startDate",
+            "timeZone": "$timeZone"
+          },
+          "end": {
+            "dateTime": "$endDateTime",
+            "date": "$endDate",
+            "timeZone": "$timeZone"
+          },
+          "attendees": "$attendees"
+        }
+      }
+    },
+    {
+      "name": "gcal_update_event",
+      "description": "Patch an existing event. Only include fields to change. Same start/end rules as gcal_create_event.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar id or 'primary'."
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event id to update."
+          },
+          "summary": {
+            "type": "string",
+            "description": "New title."
+          },
+          "description": {
+            "type": "string",
+            "description": "New description."
+          },
+          "location": {
+            "type": "string",
+            "description": "New location."
+          },
+          "startDateTime": {
+            "type": "string",
+            "description": "New timed start — ISO 8601."
+          },
+          "endDateTime": {
+            "type": "string",
+            "description": "New timed end — ISO 8601."
+          },
+          "startDate": {
+            "type": "string",
+            "description": "New all-day start — YYYY-MM-DD."
+          },
+          "endDate": {
+            "type": "string",
+            "description": "New all-day end — YYYY-MM-DD."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA timezone for timed start/end."
+          },
+          "sendUpdates": {
+            "type": "string",
+            "description": "all, externalOnly, or none."
+          }
+        },
+        "required": ["calendarId", "eventId"]
+      },
+      "endpointMapping": {
+        "method": "PATCH",
+        "path": "/calendars/{calendarId}/events/{eventId}",
+        "queryParams": {
+          "sendUpdates": "$sendUpdates"
+        },
+        "bodyMapping": {
+          "summary": "$summary",
+          "description": "$description",
+          "location": "$location",
+          "start": {
+            "dateTime": "$startDateTime",
+            "date": "$startDate",
+            "timeZone": "$timeZone"
+          },
+          "end": {
+            "dateTime": "$endDateTime",
+            "date": "$endDate",
+            "timeZone": "$timeZone"
+          }
+        }
+      }
+    },
+    {
+      "name": "gcal_delete_event",
+      "description": "Delete an event from a calendar. Requires writer or owner access on the calendar.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar id or 'primary'."
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event id to delete."
+          },
+          "sendUpdates": {
+            "type": "string",
+            "description": "all, externalOnly, or none."
+          }
+        },
+        "required": ["calendarId", "eventId"]
+      },
+      "endpointMapping": {
+        "method": "DELETE",
+        "path": "/calendars/{calendarId}/events/{eventId}",
+        "queryParams": {
+          "sendUpdates": "$sendUpdates"
+        }
+      }
+    }
+  ]
+}

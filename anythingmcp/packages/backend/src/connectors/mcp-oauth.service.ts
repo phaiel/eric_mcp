@@ -127,6 +127,7 @@ export class McpOAuthService {
     codeChallenge: string;
     state: string;
     scope?: string;
+    extraParams?: Record<string, string>;
   }): string {
     const url = new URL(params.authorizationEndpoint);
     url.searchParams.set('response_type', 'code');
@@ -137,6 +138,11 @@ export class McpOAuthService {
     url.searchParams.set('state', params.state);
     if (params.scope) {
       url.searchParams.set('scope', params.scope);
+    }
+    if (params.extraParams) {
+      for (const [key, value] of Object.entries(params.extraParams)) {
+        url.searchParams.set(key, value);
+      }
     }
     return url.toString();
   }

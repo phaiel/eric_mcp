@@ -41,6 +41,7 @@ No decision → say so; ≤3 open questions; offer to capture one. No raw dumps 
 
 ## Morning brief
 
+0. **Calendar** (if `gcal_*` connected): today's events from `primary` + any family calendar ids from [google-calendar.md](google-calendar.md). One-line schedule context before commitments.
 1. Actions Status Today/Doing; fallback Inbox on active projects.
 2. Projects with non-empty Blocking.
 3. Pick ≤3 with project + Energy (High/Medium/Low/Zombie).

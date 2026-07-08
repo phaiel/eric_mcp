@@ -55,9 +55,15 @@ export class RestEngine {
     params: Record<string, unknown>,
   ): Promise<unknown> {
     // Interpolate path parameters: /users/{id} → /users/123
+    // encodeURIComponent so values like calendar IDs (emails) are safe in URL paths.
     let path = endpointMapping.path;
     for (const [key, value] of Object.entries(params)) {
-      path = path.replace(`{${key}}`, String(value));
+      if (path.includes(`{${key}}`)) {
+        path = path.replace(
+          `{${key}}`,
+          encodeURIComponent(String(value)),
+        );
+      }
     }
 
     // Allow per-tool absolute URLs to escape the connector's baseUrl. Useful

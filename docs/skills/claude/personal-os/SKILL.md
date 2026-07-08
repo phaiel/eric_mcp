@@ -5,7 +5,7 @@ description: Operates Eric's Personal OS over MCP—capture, thread retrieval, m
 
 # Personal OS
 
-Eric's context-and-execution layer over Notion (commitments) + Hevy (workouts) + future Gmail/Drive/Health. **AnythingMCP** supplies connector rules and write safety; this skill supplies **what to do**.
+Eric's context-and-execution layer over Notion (commitments) + Hevy (workouts) + Google Calendar (schedule) + future Gmail/Drive/Health. **AnythingMCP** supplies connector rules and write safety; this skill supplies **what to do**.
 
 ## Route first
 
@@ -38,6 +38,8 @@ Templates: [references/templates.md](references/templates.md)
 Schema, data source IDs, project URLs: [references/notion.md](references/notion.md)
 
 Live property types → `API-retrieve-a-data-source` on the data source. Retrieval rules (search vs query) are enforced by AnythingMCP **notion-tooling**—follow them.
+
+Calendar (when connected): [references/google-calendar.md](references/google-calendar.md)
 
 ## Writes
 

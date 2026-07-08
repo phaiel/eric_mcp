@@ -726,6 +726,16 @@ export class ConnectorsController {
       });
 
       // Build authorization URL
+      const authorizationParams = authConfig.authorizationParams;
+      const extraParams =
+        authorizationParams && typeof authorizationParams === 'object'
+          ? Object.fromEntries(
+              Object.entries(authorizationParams as Record<string, unknown>).map(
+                ([k, v]) => [k, String(v)],
+              ),
+            )
+          : undefined;
+
       const authorizationUrl = this.mcpOAuthService.buildAuthorizationUrl({
         authorizationEndpoint,
         clientId,
@@ -733,6 +743,7 @@ export class ConnectorsController {
         codeChallenge,
         state,
         scope,
+        extraParams,
       });
 
       return { authorizationUrl };
