@@ -4,7 +4,7 @@
 
 databases:
   - name: personal-os-db
-    plan: basic-256mb
+    plan: free
     databaseName: anythingmcp
     user: amcp
 
@@ -13,8 +13,7 @@ services:
     name: personal-os-mcp
     runtime: docker
     rootDir: anythingmcp
-    plan: starter
-    region: ohio
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
