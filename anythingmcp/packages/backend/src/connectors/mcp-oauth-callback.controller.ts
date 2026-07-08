@@ -8,6 +8,8 @@ import { McpClientEngine } from './engines/mcp-client.engine';
 import { getConnectorMcpPath } from './mcp-path.util';
 import { PrismaService } from '../common/prisma.service';
 import { McpServerService } from '../mcp-server/mcp-server.service';
+import { decrypt } from '../common/crypto/encryption.util';
+import { getRequiredSecret } from '../common/secrets.util';
 
 /**
  * Separate controller for the OAuth2 callback — no JWT guard.
@@ -17,6 +19,7 @@ import { McpServerService } from '../mcp-server/mcp-server.service';
 @Controller('api/mcp-oauth')
 export class McpOAuthCallbackController {
   private readonly logger = new Logger(McpOAuthCallbackController.name);
+  private readonly encryptionKey: string;
 
   constructor(
     private readonly mcpOAuthService: McpOAuthService,
@@ -25,7 +28,12 @@ export class McpOAuthCallbackController {
     private readonly prisma: PrismaService,
     private readonly mcpServer: McpServerService,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    this.encryptionKey = getRequiredSecret(
+      'ENCRYPTION_KEY',
+      this.configService.get<string>('ENCRYPTION_KEY'),
+    );
+  }
 
   @Get('callback')
   @ApiOperation({
@@ -71,22 +79,29 @@ export class McpOAuthCallbackController {
         `OAuth tokens obtained for connector ${flow.connectorId}`,
       );
 
-      // 2. Store tokens (encrypted) in the connector's authConfig
-      await this.connectorsService.update(
+      // 2. Store tokens (encrypted) — merge so clientId/scopes survive refresh
+      const existingConnector = await this.connectorsService.findByIdInternal(
         flow.connectorId,
-        {
-          authConfig: {
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-            tokenUrl: flow.tokenUrl,
-            clientId: flow.clientId,
-            clientSecret: flow.clientSecret,
-            expiresIn: tokens.expiresIn,
-            expiresAt: Date.now() + (tokens.expiresIn || 3600) * 1000,
-            authorizedAt: new Date().toISOString(),
-          },
-        },
       );
+      const existingAuth = existingConnector.authConfig
+        ? JSON.parse(
+            decrypt(existingConnector.authConfig, this.encryptionKey),
+          )
+        : {};
+
+      await this.connectorsService.update(flow.connectorId, {
+        authConfig: {
+          ...existingAuth,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken ?? existingAuth.refreshToken,
+          tokenUrl: flow.tokenUrl,
+          clientId: flow.clientId,
+          clientSecret: flow.clientSecret,
+          expiresIn: tokens.expiresIn,
+          expiresAt: Date.now() + (tokens.expiresIn || 3600) * 1000,
+          authorizedAt: new Date().toISOString(),
+        },
+      });
 
       // 3. Auto-discover tools from the remote MCP server
       let toolsImported = 0;

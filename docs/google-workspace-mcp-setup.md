@@ -10,7 +10,7 @@ Cross-product search across Gmail, Drive, Calendar, and Chat via Google's **host
 | OAuth credentials | Your GCP project → Render env vars |
 | Bridge | AnythingMCP MCP connector on Render |
 
-## GCP setup
+## GCP project: `niagara-mcp-host`
 
 1. Enable APIs: Gmail, Drive, Calendar, Chat + **Google Workspace MCP API** (`workspacemcp.googleapis.com`).
 2. OAuth consent → add scopes:

@@ -183,9 +183,9 @@ async function main() {
     connector = await amcpRequest(token, 'POST', '/api/connectors', payload);
     console.log('Created connector', connector.id);
   } else {
-    const { type: _type, ...updatePayload } = payload;
+    const { type: _type, authConfig: _auth, ...updatePayload } = payload;
     connector = await amcpRequest(token, 'PUT', `/api/connectors/${connector.id}`, updatePayload);
-    console.log('Updated connector', connector.id);
+    console.log('Updated connector', connector.id, '(preserved OAuth tokens)');
   }
 
   const notionId = connectors.find((c) => c.name === 'Notion' && c.type === 'MCP')?.id;
@@ -195,32 +195,38 @@ async function main() {
   });
   console.log('Assigned to MCP server:', connectorIds.join(', '));
 
-  const auth = connector.authConfig;
-  if (auth?.accessToken || auth?.refreshToken) {
-    console.log('OAuth tokens present — discovering tools...');
-    const discovered = await amcpRequest(
-      token,
-      'POST',
-      `/api/connectors/${connector.id}/discover-tools`,
-    );
-    if (discovered.error) {
-      console.warn('Discover failed:', discovered.error);
-    } else {
-      console.log(
-        `Tools: created=${discovered.created ?? 0} updated=${discovered.updated ?? 0}`,
-      );
-      const tools = await amcpRequest(token, 'GET', `/api/connectors/${connector.id}/tools`);
-      console.log('Tool names:', tools.map((t) => t.name).join(', ') || '(none)');
-    }
-    return;
-  }
-
   const oauth = await amcpRequest(
     token,
     'POST',
     `/api/connectors/${connector.id}/oauth/authorize`,
   );
   if (oauth.error) throw new Error(oauth.error);
+
+  // Probe whether search works (needs valid OAuth token on connector)
+  const MCP_KEY = await renderEnv('MCP_API_KEY');
+  if (MCP_KEY) {
+    const probe = await fetch(`${AMCP_BASE}/mcp/${AMCP_SERVER_ID}`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': MCP_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'search_corpus', arguments: { query: 'test' } },
+      }),
+    });
+    const probeText = await probe.text();
+    if (probeText.includes('unregistered callers') || probeText.includes('does not have permission')) {
+      console.log('\nOAuth token missing or stale — authorization required.\n');
+    } else if (!probeText.includes('isError":true')) {
+      console.log('\nsearch_corpus probe: OK\n');
+      return;
+    }
+  }
 
   console.log('\n--- Open this URL to authorize Google Workspace MCP ---\n');
   console.log(oauth.authorizationUrl);

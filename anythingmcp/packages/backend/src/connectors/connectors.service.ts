@@ -143,8 +143,11 @@ export class ConnectorsService {
 
     const updateData: any = { ...data };
     if (data.authConfig) {
+      const existingAuth = existing.authConfig
+        ? JSON.parse(decrypt(existing.authConfig, this.encryptionKey))
+        : {};
       updateData.authConfig = encrypt(
-        JSON.stringify(data.authConfig),
+        JSON.stringify({ ...existingAuth, ...data.authConfig }),
         this.encryptionKey,
       );
     }
