@@ -146,10 +146,17 @@ async function main() {
   }
 
   let connector = connectors.find((c) => c.name === CONNECTOR_NAME);
+  if (connector && process.argv.includes('--reimport')) {
+    await amcpRequest(token, 'DELETE', `/api/connectors/${connector.id}`);
+    console.log('Deleted existing connector for re-import', connector.id);
+    connector = undefined;
+  }
   if (!connector) {
     const imported = await amcpRequest(token, 'POST', `/api/adapters/${ADAPTER_SLUG}/import`, {
-      GOOGLE_WORKSPACE_CLIENT_ID: clientId,
-      GOOGLE_WORKSPACE_CLIENT_SECRET: clientSecret,
+      credentials: {
+        GOOGLE_WORKSPACE_CLIENT_ID: clientId,
+        GOOGLE_WORKSPACE_CLIENT_SECRET: clientSecret,
+      },
     });
     connector = { id: imported.connectorId };
     console.log(
