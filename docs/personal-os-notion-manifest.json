@@ -2,7 +2,7 @@
   "seededAt": "2026-07-08T03:25:00.630Z",
   "parentPage": {
     "id": "39727d3a-aeb5-8177-8187-d18b5aab21be",
-    "url": ""
+    "url": "https://app.notion.com/p/39727d3aaeb581778187d18b5aab21be"
   },
   "dataSources": {
     "areas": "b1b0fc74-e8c0-4109-bc15-e6cfe36a037f",
@@ -15,7 +15,15 @@
     "people": "c41f39df-a425-4588-ab14-13bbf1e105a1",
     "tagDefinitions": "1cb1607a-48e2-4ae7-827e-c84c86b63149"
   },
-  "projectPagesBySlug": {},
+  "projectPagesBySlug": {
+    "sauna": "https://app.notion.com/39727d3aaeb58105ae15fb951dbed9f5",
+    "deck": "https://app.notion.com/39727d3aaeb58129b4a1c2245fc3fa00",
+    "training": "https://app.notion.com/39727d3aaeb581779a0cf2faaa488126",
+    "home-energy": "https://app.notion.com/39727d3aaeb581b0be2ac038969f91c0",
+    "anythingmcp-stack": "https://app.notion.com/39727d3aaeb581e3a6f4e3420a3701d2",
+    "career": "https://app.notion.com/39727d3aaeb581e4bed4c5886775aeac",
+    "family-ops": "https://app.notion.com/39727d3aaeb581f4b363fc8c43d2f6ea"
+  },
   "conventions": {
     "crossDatabaseKey": "project_slug",
     "crossConnectorIds": [
