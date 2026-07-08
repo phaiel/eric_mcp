@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import { McpOAuthService } from './mcp-oauth.service';
 import { ConnectorsService } from './connectors.service';
 import { McpClientEngine } from './engines/mcp-client.engine';
+import { getConnectorMcpPath } from './mcp-path.util';
 import { PrismaService } from '../common/prisma.service';
 import { McpServerService } from '../mcp-server/mcp-server.service';
 
@@ -94,6 +95,8 @@ export class McpOAuthCallbackController {
           flow.connectorId,
         );
 
+        const mcpPath = getConnectorMcpPath(connector);
+
         const remoteTools = await this.mcpClientEngine.listTools({
           baseUrl: connector.baseUrl,
           authType: 'OAUTH2',
@@ -101,6 +104,7 @@ export class McpOAuthCallbackController {
             accessToken: tokens.accessToken,
           },
           headers: connector.headers as Record<string, string>,
+          mcpPath,
         });
 
         for (const rt of remoteTools) {
@@ -113,7 +117,7 @@ export class McpOAuthCallbackController {
                 parameters: rt.inputSchema as any,
                 endpointMapping: {
                   method: rt.name,
-                  path: '/mcp',
+                  path: mcpPath,
                 } as any,
               },
             });

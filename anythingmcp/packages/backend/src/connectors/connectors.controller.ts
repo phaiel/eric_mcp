@@ -36,6 +36,7 @@ import { GraphqlParser } from './parsers/graphql.parser';
 import { PostmanParser } from './parsers/postman.parser';
 import { CurlParser } from './parsers/curl.parser';
 import { McpClientEngine } from './engines/mcp-client.engine';
+import { getConnectorMcpPath } from './mcp-path.util';
 import { McpOAuthService } from './mcp-oauth.service';
 import { CatalogResyncService } from './catalog-resync.service';
 import { PrismaService } from '../common/prisma.service';
@@ -773,11 +774,13 @@ export class ConnectorsController {
         ? JSON.parse(decrypt(connector.authConfig, this.encryptionKey))
         : undefined;
 
+      const mcpPath = getConnectorMcpPath(connector);
       const remoteTools = await this.mcpClientEngine.listTools({
         baseUrl: connector.baseUrl,
         authType: connector.authType,
         authConfig,
         headers: connector.headers as Record<string, string>,
+        mcpPath,
       });
 
       const parsedTools = remoteTools.map((rt) => ({
@@ -786,7 +789,7 @@ export class ConnectorsController {
         parameters: rt.inputSchema || { type: 'object', properties: {} },
         endpointMapping: {
           method: rt.name,
-          path: '/mcp',
+          path: mcpPath,
         },
         outputSchema: rt.outputSchema ?? null,
       }));

@@ -7,6 +7,7 @@ import { SoapEngine } from './engines/soap.engine';
 import { GraphqlEngine } from './engines/graphql.engine';
 import { DatabaseEngine } from './engines/database.engine';
 import { McpClientEngine } from './engines/mcp-client.engine';
+import { getConnectorMcpPath } from './mcp-path.util';
 import { encrypt, decrypt } from '../common/crypto/encryption.util';
 import { getRequiredSecret } from '../common/secrets.util';
 import { resolveInternalDbRestUrl } from '../common/db-rest.util';
@@ -243,6 +244,7 @@ export class ConnectorsService {
             authType: connector.authType,
             authConfig,
             headers: connector.headers as Record<string, string>,
+            mcpPath: getConnectorMcpPath(connector),
           });
           return {
             ok: true,
