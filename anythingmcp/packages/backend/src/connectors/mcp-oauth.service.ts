@@ -148,6 +148,88 @@ export class McpOAuthService {
   }
 
   /**
+   * OAuth 2.1 Pushed Authorization Request (RFC 9126).
+   *
+   * Some servers (e.g. Guava) require the authorization request to be pushed
+   * server-to-server BEFORE the front-channel redirect: the client POSTs all
+   * the authorization parameters to a PAR endpoint and receives a one-shot
+   * `request_uri`. The user is then redirected to the authorization endpoint
+   * with only `client_id` + `request_uri` — no scope/redirect_uri/challenge in
+   * the browser URL. Client authentication uses client_secret_post (form
+   * fields), matching exchangeCodeForTokens, so we never send Basic + body
+   * together (which such servers reject).
+   */
+  async pushAuthorizationRequest(params: {
+    parUrl: string;
+    clientId: string;
+    clientSecret?: string;
+    redirectUri: string;
+    codeChallenge: string;
+    state: string;
+    scope?: string;
+    extraParams?: Record<string, string>;
+  }): Promise<string> {
+    const body: Record<string, string> = {
+      response_type: 'code',
+      client_id: params.clientId,
+      redirect_uri: params.redirectUri,
+      code_challenge: params.codeChallenge,
+      code_challenge_method: 'S256',
+      state: params.state,
+    };
+    if (params.clientSecret) body.client_secret = params.clientSecret;
+    if (params.scope) body.scope = params.scope;
+    if (params.extraParams) {
+      for (const [key, value] of Object.entries(params.extraParams)) {
+        body[key] = value;
+      }
+    }
+
+    this.logger.debug(`Pushing authorization request to ${params.parUrl}`);
+
+    await assertSafeOutboundUrl(params.parUrl);
+    const response = await axios.post(
+      params.parUrl,
+      new URLSearchParams(body).toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        timeout: 10000,
+      },
+    );
+
+    const data = response.data;
+    if (data?.error) {
+      throw new Error(
+        `Pushed authorization request failed: ${data.error} — ${data.error_description || ''}`,
+      );
+    }
+    if (!data?.request_uri) {
+      throw new Error(
+        'Pushed authorization request returned no request_uri',
+      );
+    }
+    return String(data.request_uri);
+  }
+
+  /**
+   * Build the front-channel authorization URL for a PAR flow: only `client_id`
+   * and the `request_uri` returned by pushAuthorizationRequest go in the URL.
+   */
+  buildAuthorizationUrlWithRequestUri(params: {
+    authorizationEndpoint: string;
+    clientId: string;
+    requestUri: string;
+  }): string {
+    const url = new URL(params.authorizationEndpoint);
+    url.searchParams.set('client_id', params.clientId);
+    url.searchParams.set('request_uri', params.requestUri);
+    return url.toString();
+  }
+
+  /**
    * Exchange an authorization code for tokens (with PKCE verifier).
    */
   async exchangeCodeForTokens(params: {

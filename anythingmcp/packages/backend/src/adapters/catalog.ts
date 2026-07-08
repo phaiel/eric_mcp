@@ -89,6 +89,7 @@ import * as googleWorkspaceApis from './intl/google-workspace-apis.json';
 import * as gorgias from './intl/gorgias.json';
 import * as greenhouse from './intl/greenhouse.json';
 import * as gtinLookup from './intl/gtin-lookup.json';
+import * as guava from './intl/guava.json';
 import * as hackernews from './intl/hackernews.json';
 import * as harvest from './intl/harvest.json';
 import * as heap from './intl/heap.json';
@@ -369,6 +370,7 @@ const RAW_ADAPTERS: AdapterDefinition[] = [
   gorgias as unknown as AdapterDefinition,
   greenhouse as unknown as AdapterDefinition,
   gtinLookup as unknown as AdapterDefinition,
+  guava as unknown as AdapterDefinition,
   hackernews as unknown as AdapterDefinition,
   harvest as unknown as AdapterDefinition,
   heap as unknown as AdapterDefinition,

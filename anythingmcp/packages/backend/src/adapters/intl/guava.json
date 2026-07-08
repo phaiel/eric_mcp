@@ -1,0 +1,284 @@
+{
+  "slug": "guava",
+  "name": "Guava Health",
+  "description": "Read and write personal health data through Guava Health's GA REST API — metrics (weight, heart rate, steps, blood glucose…), sleep, activities, nutrition, and water. OAuth 2.1 with PKCE + Pushed Authorization Requests.",
+  "instructions": "Guava aggregates health data from connected devices, apps, and clinical sources behind one API. OAuth runs as the user (self-grant); reads/writes are limited to the FHIR SMART-style scopes they consent to.\n\n**Auth (OAuth 2.1, confidential client):** Guava mandates PKCE (S256), Pushed Authorization Requests (PAR), client_secret_post, and refresh-token rotation. AnythingMCP handles all of this — the PAR endpoint is declared in the connector's authConfig (`pushedAuthorizationRequestUrl`). Rotated refresh tokens are persisted automatically; if a call ever returns `invalid_grant`, re-run **Authorize with Provider**.\n\n**Setup (one-time):** Create a confidential OAuth client in Guava with redirect URI `https://<your-anythingmcp>/api/mcp-oauth/callback`. Import this adapter with the client ID/secret, then **Authorize with Provider** and approve the scopes you want. `offline_access` is requested so a refresh token is issued; `profile` powers `guava_get_me`.\n\n**Reads** use the FHIR `{resource}/_search` pattern: POST with an `application/x-www-form-urlencoded` body (never GET — keeps health data out of URLs). List filters use comma-separated OR syntax (e.g. `types=weight,height`). Times are ISO 8601 with timezone; `start_time` is inclusive, `end_time` exclusive.\n\n**Pagination:** responses include a `link` array; when a `next` link is present there are more results. To fetch the next page, call `guava_search_next` with the `resource` and the `after` cursor taken from the next link's `?after=` value — do NOT resend the original filters. Use a high `_count` if you intend to page through all history, or you may be rate-limited.\n\n**Metrics quirk:** these high-volume types must be requested ALONE (one type per call): steps, heart_rate_variability, resting_heart_rate, vo2_max, oxygen_saturation, respiratory_rate, blood_glucose, heart_rate. Other types can be combined.\n\n**Units** are UCUM codes. Quantities are `{value, code}` objects (e.g. `{\"value\":5,\"code\":\"km\"}`); system is never specified.\n\n**Writes** (`guava_write_*`) all share the envelope `{ source, log_type, entries }`. `source` is reverse-DNS (`com.example.app`) or a web domain (`example.com`) identifying where the data originated — use your own app/domain if you created it. `log_type` is `auto` (device-generated) or `manual` (human-entered); each entry may override both. Up to 10000 entries per request. Each entry may carry an `identifier` array of `{value, system?}` for idempotent upserts.\n\n**Write safety:** health writes are consequential — propose the exact write (resource, count, sample entry) in one line before calling, unless the user's current message explicitly authorizes that exact write.",
+  "region": "intl",
+  "category": "productivity",
+  "icon": "guava",
+  "docsUrl": "https://guavahealth.com",
+  "requiredEnvVars": [
+    "GUAVA_CLIENT_ID",
+    "GUAVA_CLIENT_SECRET"
+  ],
+  "connector": {
+    "name": "Guava Health",
+    "type": "REST",
+    "baseUrl": "https://api.guavahealth.com",
+    "authType": "OAUTH2",
+    "authConfig": {
+      "clientId": "{{GUAVA_CLIENT_ID}}",
+      "clientSecret": "{{GUAVA_CLIENT_SECRET}}",
+      "authorizationUrl": "https://guavahealth.com/oauth/authorize",
+      "tokenUrl": "https://api.guavahealth.com/oauth/token",
+      "pushedAuthorizationRequestUrl": "https://api.guavahealth.com/oauth/par",
+      "scopes": "profile offline_access patient/sleep.cruds patient/activities.cruds patient/nutrition.cruds patient/water.cruds patient/resting_heart_rate.cruds patient/heart_rate_variability.cruds patient/oxygen_saturation.cruds patient/respiratory_rate.cruds patient/steps.cruds patient/heart_rate.cruds patient/vo2_max.cruds patient/weight.cruds patient/height.cruds patient/systolic_blood_pressure.cruds patient/diastolic_blood_pressure.cruds patient/blood_glucose.cruds patient/body_temperature.cruds patient/body_fat.cruds patient/body_water.cruds patient/bone_mass.cruds patient/muscle_mass.cruds patient/lean_mass.cruds"
+    }
+  },
+  "tools": [
+    {
+      "name": "guava_get_me",
+      "description": "Return the granting user and the subject profile the token operates on (email, profile id, given/family name). Requires the profile scope. Plain GET, no filters.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/v1/me"
+      }
+    },
+    {
+      "name": "guava_search_metrics",
+      "description": "Search over-time numeric health metrics. `types` is required (comma-separated OR). Types: resting_heart_rate, heart_rate_variability, oxygen_saturation, respiratory_rate, steps, heart_rate, vo2_max, weight, height, systolic_blood_pressure, diastolic_blood_pressure, blood_glucose, body_temperature, body_fat, body_water, bone_mass, muscle_mass, lean_mass. IMPORTANT: these high-volume types must be requested ALONE: steps, heart_rate_variability, resting_heart_rate, vo2_max, oxygen_saturation, respiratory_rate, blood_glucose, heart_rate. Each entry returns {source, type, time, value, unit}. To page, use guava_search_next.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "types": { "type": "string", "description": "Required. Comma-separated metric types, e.g. 'weight,height' or a single high-volume type like 'steps'." },
+          "start_time": { "type": "string", "description": "Lower bound, inclusive. ISO 8601 with timezone, e.g. 2026-05-01T00:00:00Z." },
+          "end_time": { "type": "string", "description": "Upper bound, exclusive. ISO 8601 with timezone." },
+          "_count": { "type": "integer", "description": "Page size 1-10000 (default 200). Use a high value to page through all history." }
+        },
+        "required": ["types"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/metrics/_search",
+        "bodyEncoding": "form-urlencoded",
+        "bodyMapping": {
+          "types": "$types",
+          "start_time": "$start_time",
+          "end_time": "$end_time",
+          "_count": "$_count"
+        }
+      }
+    },
+    {
+      "name": "guava_search_sleep",
+      "description": "Search sleep sessions. Each entry: {source, start_time, end_time, seconds_deep, seconds_rem, seconds_light, seconds_awake, stages[]}. To page, use guava_search_next with resource=sleep.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_time": { "type": "string", "description": "Lower bound, inclusive. ISO 8601 with timezone." },
+          "end_time": { "type": "string", "description": "Upper bound, exclusive. ISO 8601 with timezone." },
+          "_count": { "type": "integer", "description": "Page size 1-1000 (default 100)." }
+        }
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/sleep/_search",
+        "bodyEncoding": "form-urlencoded",
+        "bodyMapping": {
+          "start_time": "$start_time",
+          "end_time": "$end_time",
+          "_count": "$_count"
+        }
+      }
+    },
+    {
+      "name": "guava_search_activities",
+      "description": "Search physical/mental/recovery activities. Each entry: {source, type, type_name, title, start_time, end_time, energy, distance, ...}. If the source lacks timezone, timezone_unknown:true is present. To page, use guava_search_next with resource=activities.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_time": { "type": "string", "description": "Lower bound, inclusive. ISO 8601 with timezone." },
+          "end_time": { "type": "string", "description": "Upper bound, exclusive. ISO 8601 with timezone." },
+          "_count": { "type": "integer", "description": "Page size 1-1000 (default 100)." }
+        }
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/activities/_search",
+        "bodyEncoding": "form-urlencoded",
+        "bodyMapping": {
+          "start_time": "$start_time",
+          "end_time": "$end_time",
+          "_count": "$_count"
+        }
+      }
+    },
+    {
+      "name": "guava_search_nutrition",
+      "description": "Search food/meal logs. Each entry: {source, time, name, meal_type?, and nutrient quantities e.g. energy, protein, total_fat, total_carbohydrate, sodium...}. To page, use guava_search_next with resource=nutrition.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_time": { "type": "string", "description": "Lower bound, inclusive. ISO 8601 with timezone." },
+          "end_time": { "type": "string", "description": "Upper bound, exclusive. ISO 8601 with timezone." },
+          "_count": { "type": "integer", "description": "Page size 1-1000 (default 100)." }
+        }
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/nutrition/_search",
+        "bodyEncoding": "form-urlencoded",
+        "bodyMapping": {
+          "start_time": "$start_time",
+          "end_time": "$end_time",
+          "_count": "$_count"
+        }
+      }
+    },
+    {
+      "name": "guava_search_water",
+      "description": "Search water/drinking events. Each entry: {source, time, volume:{value,code}}. To page, use guava_search_next with resource=water.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_time": { "type": "string", "description": "Lower bound, inclusive. ISO 8601 with timezone." },
+          "end_time": { "type": "string", "description": "Upper bound, exclusive. ISO 8601 with timezone." },
+          "_count": { "type": "integer", "description": "Page size 1-1000 (default 100)." }
+        }
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/water/_search",
+        "bodyEncoding": "form-urlencoded",
+        "bodyMapping": {
+          "start_time": "$start_time",
+          "end_time": "$end_time",
+          "_count": "$_count"
+        }
+      }
+    },
+    {
+      "name": "guava_search_next",
+      "description": "Fetch the next page of a prior search. When a read response contains a link with relation 'next', take the resource from that URL's path (metrics|sleep|activities|nutrition|water) and the cursor from its ?after= value, and pass them here. Do NOT resend the original filters — the cursor carries them.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "resource": { "type": "string", "enum": ["metrics", "sleep", "activities", "nutrition", "water"], "description": "The resource being paged, taken from the next link path." },
+          "after": { "type": "string", "description": "The opaque cursor from the next link's ?after= query value." }
+        },
+        "required": ["resource", "after"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/{resource}/_search",
+        "queryParams": {
+          "after": "$after"
+        }
+      }
+    },
+    {
+      "name": "guava_write_metrics",
+      "description": "Write over-time numeric metrics. Each entry: {type (required), value (required number), unit (required UCUM), time (ISO 8601)}. steps and resting_heart_rate may use `date` (YYYY-MM-DD) + optional `timezone` instead of time. blood_glucose requires method (blood|interstitial); heart_rate_variability requires method (sdnn|rmssd) and measurement_window (10-86400s). Units per type: weight/bone_mass/muscle_mass/lean_mass kg|[lb_av]; height cm|m|[in_i]; blood_glucose mg/dL|mmol/L; body_temperature Cel|[degF]; heart_rate/resting_heart_rate/respiratory_rate /min; oxygen_saturation/body_fat/body_water %; vo2_max mL/kg/min; systolic/diastolic_blood_pressure mm[Hg]; steps no unit. Propose before writing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "Origin of the data: reverse-DNS (com.example.app) or web domain (example.com)." },
+          "log_type": { "type": "string", "enum": ["auto", "manual"], "description": "auto = device-generated, manual = human-entered." },
+          "entries": { "type": "array", "description": "Up to 10000 metric entries. Each: {type, value, unit, time|date, ...}. May include identifier[] for idempotent upserts.", "items": { "type": "object" } }
+        },
+        "required": ["source", "log_type", "entries"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/metrics",
+        "bodyMapping": {
+          "source": "$source",
+          "log_type": "$log_type",
+          "entries": "$entries"
+        }
+      }
+    },
+    {
+      "name": "guava_write_sleep",
+      "description": "Write sleep sessions. Each entry: {start_time (required ISO 8601), end_time (required), seconds_awake?, seconds_light?, seconds_deep?, seconds_rem?, stages? [{start, stage: awake|rem|light|deep|asleep, seconds}] max 2000}. Missing seconds_* totals are computed from stages if present. Propose before writing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "Origin of the data: reverse-DNS or web domain." },
+          "log_type": { "type": "string", "enum": ["auto", "manual"], "description": "auto or manual." },
+          "entries": { "type": "array", "description": "Up to 10000 sleep sessions. Each: {start_time, end_time, seconds_*?, stages?}. May include identifier[].", "items": { "type": "object" } }
+        },
+        "required": ["source", "log_type", "entries"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/sleep",
+        "bodyMapping": {
+          "source": "$source",
+          "log_type": "$log_type",
+          "entries": "$entries"
+        }
+      }
+    },
+    {
+      "name": "guava_write_nutrition",
+      "description": "Write food/meal logs. Each entry: {time (required ISO 8601), name (required, <=255), meal_type? (breakfast|lunch|dinner|snack), and optional nutrient Quantities (energy accepts kcal|kJ; mass nutrients accept g|mg|ug) e.g. protein, total_fat, saturated_fat, total_carbohydrate, dietary_fiber, sugar, sodium, cholesterol, calcium, iron, vitamin_c, ...}. All values are for the whole entry (no servings). Propose before writing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "Origin of the data: reverse-DNS or web domain." },
+          "log_type": { "type": "string", "enum": ["auto", "manual"], "description": "auto or manual." },
+          "entries": { "type": "array", "description": "Up to 10000 meal logs. Each: {time, name, meal_type?, <nutrient>:{value,code}...}. May include identifier[].", "items": { "type": "object" } }
+        },
+        "required": ["source", "log_type", "entries"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/nutrition",
+        "bodyMapping": {
+          "source": "$source",
+          "log_type": "$log_type",
+          "entries": "$entries"
+        }
+      }
+    },
+    {
+      "name": "guava_write_water",
+      "description": "Write drinking events. Each entry: {time (required ISO 8601), volume (required Quantity {value, code} supporting mL or [foz_us])}. Propose before writing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "Origin of the data: reverse-DNS or web domain." },
+          "log_type": { "type": "string", "enum": ["auto", "manual"], "description": "auto or manual." },
+          "entries": { "type": "array", "description": "Up to 10000 water events. Each: {time, volume:{value,code}}. May include identifier[].", "items": { "type": "object" } }
+        },
+        "required": ["source", "log_type", "entries"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/water",
+        "bodyMapping": {
+          "source": "$source",
+          "log_type": "$log_type",
+          "entries": "$entries"
+        }
+      }
+    },
+    {
+      "name": "guava_write_activities",
+      "description": "Write physical/mental/recovery activities. Each entry: {type (required snake_case, use a standard type like running, cycling, strength_training, yoga, walking, hiit, meditation, sauna... or a generic 'workout'), type_name (required only if type is non-standard, e.g. 'Snow Shoveling'), title?, category? (physical|mental|recovery), start_time (required ISO 8601), end_time (required), distance? {value,code: m|km|[mi_i]}, energy? {value,code: kcal|kJ}, heart_rate_avg?, heart_rate_max?, elevation_gain? {value,code: m|[ft_i]}}. Propose before writing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "Origin of the data: reverse-DNS or web domain." },
+          "log_type": { "type": "string", "enum": ["auto", "manual"], "description": "auto or manual." },
+          "entries": { "type": "array", "description": "Up to 10000 activities. Each: {type, start_time, end_time, ...}. May include identifier[].", "items": { "type": "object" } }
+        },
+        "required": ["source", "log_type", "entries"]
+      },
+      "endpointMapping": {
+        "method": "POST",
+        "path": "/v1/activities",
+        "bodyMapping": {
+          "source": "$source",
+          "log_type": "$log_type",
+          "entries": "$entries"
+        }
+      }
+    }
+  ]
+}

@@ -758,15 +758,42 @@ export class ConnectorsController {
             )
           : undefined;
 
-      const authorizationUrl = this.mcpOAuthService.buildAuthorizationUrl({
-        authorizationEndpoint,
-        clientId,
-        redirectUri: callbackUrl,
-        codeChallenge,
-        state,
-        scope,
-        extraParams,
-      });
+      // OAuth 2.1 Pushed Authorization Request (RFC 9126): if the connector
+      // declares a PAR endpoint, push the request server-to-server first and
+      // redirect the user with only client_id + request_uri (e.g. Guava).
+      const parUrl = authConfig.pushedAuthorizationRequestUrl
+        ? String(authConfig.pushedAuthorizationRequestUrl)
+        : '';
+
+      let authorizationUrl: string;
+      if (parUrl) {
+        const requestUri = await this.mcpOAuthService.pushAuthorizationRequest({
+          parUrl,
+          clientId,
+          clientSecret,
+          redirectUri: callbackUrl,
+          codeChallenge,
+          state,
+          scope,
+          extraParams,
+        });
+        authorizationUrl =
+          this.mcpOAuthService.buildAuthorizationUrlWithRequestUri({
+            authorizationEndpoint,
+            clientId,
+            requestUri,
+          });
+      } else {
+        authorizationUrl = this.mcpOAuthService.buildAuthorizationUrl({
+          authorizationEndpoint,
+          clientId,
+          redirectUri: callbackUrl,
+          codeChallenge,
+          state,
+          scope,
+          extraParams,
+        });
+      }
 
       return { authorizationUrl };
     } catch (error: any) {
