@@ -85,6 +85,7 @@ import * as gitbook from './intl/gitbook.json';
 import * as gocardless from './intl/gocardless.json';
 import * as googleAnalytics4 from './intl/google-analytics-4.json';
 import * as googleCalendar from './intl/google-calendar.json';
+import * as googleWorkspaceApis from './intl/google-workspace-apis.json';
 import * as gorgias from './intl/gorgias.json';
 import * as greenhouse from './intl/greenhouse.json';
 import * as gtinLookup from './intl/gtin-lookup.json';
@@ -364,6 +365,7 @@ const RAW_ADAPTERS: AdapterDefinition[] = [
   gocardless as unknown as AdapterDefinition,
   googleAnalytics4 as unknown as AdapterDefinition,
   googleCalendar as unknown as AdapterDefinition,
+  googleWorkspaceApis as unknown as AdapterDefinition,
   gorgias as unknown as AdapterDefinition,
   greenhouse as unknown as AdapterDefinition,
   gtinLookup as unknown as AdapterDefinition,

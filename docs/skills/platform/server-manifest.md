@@ -10,9 +10,10 @@ This is the Personal OS MCP server. User-facing playbooks (capture, briefs, form
 Connected now:
 - Notion — commitments, projects, decisions, actions, inbox, daily log (synthesis layer).
 - Hevy — workout facts at source (sets/reps stay in Hevy).
+- Google Workspace APIs — `gcal_*` calendar (read/write), `gmail_*` mail (read, label, draft, send), `drive_*` files (read, metadata writes), `chat_*` (if configured).
 - KG — `kg_how_to_obtain` when you are unsure which connector holds a fact.
 
 Not connected (do not call; say "not connected" in one line if the user needs them):
-- Gmail, Google Drive, Google Calendar, Google Tasks, Health/Guava.
+- Google Tasks, Health/Guava.
 
 Facts stay in source connectors; Notion holds pointers and interpretation only. Never paste full emails, files, or workout JSON into Notion.

@@ -29,7 +29,7 @@ Never copy full emails, files, or workouts into Notion.
 
 ## Find the thread
 
-0. **Workspace** (if `search_corpus` connected): one cross-product search for the topic — email, Drive, calendar, chat. External context only; Notion stays commitments layer.
+0. **Workspace** (if `gmail_*`/`drive_*` connected): one `gmail_search_messages` + one `drive_search_files` for the topic. External context only; Notion stays commitments layer. See [google-workspace.md](google-workspace.md).
 1. Resolve topic → `API-post-search` or known `project_slug`.
 2. Decisions for that project — latest non-superseded only.
 3. Project Blocking, Decision gate, open Actions.

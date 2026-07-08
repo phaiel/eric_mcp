@@ -1,54 +1,47 @@
-# Google Workspace MCP (Universal Search)
+# Google Workspace — REST APIs (current) vs MCP (superseded)
 
-Cross-product search across Gmail, Drive, Calendar, and Chat via Google's **hosted** MCP server. No Cloud Run required.
+> **Superseded:** the Google-hosted Workspace MCP servers (`workspacemcp.googleapis.com` etc.) require enrollment in the [Workspace Developer Preview Program](https://developers.google.com/workspace/preview). We switched to the GA REST APIs instead — no preview gate. If preview enrollment is ever approved, the MCP bridge path below still works.
 
-## Architecture
+## Current setup: `google-workspace-apis` adapter
 
-| Piece | Where |
-|-------|--------|
-| MCP server | Google hosts `https://workspacemcp.googleapis.com/mcp/v1` |
-| OAuth credentials | Your GCP project → Render env vars |
-| Bridge | AnythingMCP MCP connector on Render |
+One REST connector, one OAuth, four products. 21 curated tools.
 
-## GCP project: `niagara-mcp-host`
+| Product | Tools | Scope |
+|---------|-------|-------|
+| Calendar | `gcal_list_calendars`, `gcal_list_events`, `gcal_get_event`, `gcal_create_event`, `gcal_update_event`, `gcal_delete_event` | `calendar` (read/write) |
+| Gmail | `gmail_search_messages`, `gmail_get_message`, `gmail_get_thread`, `gmail_list_labels`, `gmail_modify_labels`, `gmail_create_draft`, `gmail_send_message` | `gmail.modify` |
+| Drive | `drive_search_files`, `drive_get_file`, `drive_export_file`, `drive_create_file`, `drive_update_file` | `drive` |
+| Chat | `chat_list_spaces`, `chat_list_messages`, `chat_send_message` | `chat.messages` |
 
-1. Enable APIs: Gmail, Drive, Calendar, Chat + **Google Workspace MCP API** (`workspacemcp.googleapis.com`).
-2. OAuth consent → add scopes:
-   - `gmail.readonly`
-   - `drive.readonly`
-   - `calendar.readonly`
-   - `chat.messages.readonly`
-3. OAuth client (Web application) → redirect URI:
+### GCP (project `niagara-mcp-host`)
+
+1. APIs enabled: Calendar, Gmail, Drive, Chat (all GA — done).
+2. OAuth consent screen: External, Test user `phaiel@gmail.com`, scopes above.
+3. Web OAuth client redirect URI:
    ```
    https://personal-os-mcp.onrender.com/api/mcp-oauth/callback
    ```
-4. Add yourself as **Test user** while in Testing mode.
+4. Render env: `GOOGLE_WORKSPACE_CLIENT_ID`, `GOOGLE_WORKSPACE_CLIENT_SECRET`.
 
-## Render env
-
-```
-GOOGLE_WORKSPACE_CLIENT_ID=....apps.googleusercontent.com
-GOOGLE_WORKSPACE_CLIENT_SECRET=....
-```
-
-## Wire connector
+### Wire it
 
 ```bash
-node scripts/setup-google-workspace-mcp.mjs --wait-deploy
+node scripts/setup-google-workspace-apis.mjs
 ```
 
-Open the printed authorization URL, sign in, approve scopes. Tools import automatically on callback (`search_corpus`).
+Deletes the old MCP connector, imports the adapter, assigns it to the MCP server, and prints the OAuth URL. Open it, approve, done.
 
-## Limits
+### Notes
 
-- **Read/search only** — no create calendar events, send mail, etc.
-- Add per-product MCP bridges later (`calendarmcp`, `gmailmcp`) for writes.
+- **Chat** needs a Chat app configured (Google Chat API → Configuration in GCP) even for reads. Skip if 403.
+- **Gmail drafts/sends** take a base64url-encoded RFC 2822 `raw` message. Prefer drafts.
+- **Shared calendars**: anything visible in Eric's Google Calendar sidebar is readable; writes need writer/owner access.
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| `access_denied` | Test user on consent screen |
-| Redirect mismatch | Exact Render callback URL on OAuth client |
-| 0 tools after auth | Re-run script; check discover-tools on connector |
-| Calendar not in results | Grant `calendar.readonly` scope and re-auth |
+| `redirect_uri_mismatch` | Exact callback URL on the OAuth client |
+| `access_denied` / org_internal | Consent screen External + Test user added |
+| 403 on Chat tools | Configure Chat app in GCP or skip Chat |
+| `insufficientPermissions` | Re-authorize — scope set changed |
