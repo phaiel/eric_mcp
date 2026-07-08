@@ -86,7 +86,7 @@ export function outputSchemaToZodShape(
   }
   const entries = Object.keys(s.properties)
     .filter(safeKey)
-    .map((k) => [k, z.any()] as const);
+    .map((k) => [k, z.any().optional()] as const);
   if (entries.length === 0) return null;
   return Object.fromEntries(entries);
 }

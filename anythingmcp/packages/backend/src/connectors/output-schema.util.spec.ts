@@ -23,6 +23,7 @@ describe('output-schema.util — prototype-pollution guard', () => {
     );
     const shape = outputSchemaToZodShape(schema)!;
     expect(Object.keys(shape)).toEqual(['id']);
+    expect(shape.id.isOptional()).toBe(true);
   });
 
   it('still infers normal object schemas correctly', () => {

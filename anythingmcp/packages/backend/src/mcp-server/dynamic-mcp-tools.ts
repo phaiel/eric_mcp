@@ -264,6 +264,25 @@ export class DynamicMcpTools {
       // Grow the knowledge graph from this real call (debounced, fire-and-forget).
       void this.kgService.scheduleObservationalIngest(context?.organizationId);
 
+      if (
+        tool.connectorType === 'MCP' &&
+        result &&
+        typeof result === 'object' &&
+        Array.isArray((result as { content?: unknown }).content)
+      ) {
+        const mcpResult = result as {
+          content: { type: string; text?: string }[];
+          isError?: boolean;
+        };
+        return {
+          content: mcpResult.content.map((c) => ({
+            type: 'text' as const,
+            text: typeof c.text === 'string' ? c.text : JSON.stringify(c),
+          })),
+          ...(mcpResult.isError ? { isError: true } : {}),
+        };
+      }
+
       const resultText = JSON.stringify(result, null, 2);
 
       // Cache the response if cacheTtl is set

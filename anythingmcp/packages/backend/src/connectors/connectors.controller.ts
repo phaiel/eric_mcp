@@ -804,10 +804,20 @@ export class ConnectorsController {
           method: rt.name,
           path: mcpPath,
         },
-        outputSchema: rt.outputSchema ?? null,
+        // Remote MCP servers (e.g. Google Workspace) advertise strict output
+        // schemas that fail on empty/partial results when re-exported here.
+        outputSchema: null,
       }));
 
-      return this.createToolsFromParsed(connector.id, parsedTools);
+      const result = await this.createToolsFromParsed(connector.id, parsedTools);
+
+      await this.prisma.mcpTool.updateMany({
+        where: { connectorId: connector.id },
+        data: { outputSchema: null },
+      });
+      await this.mcpServer.reloadConnectorTools(connector.id);
+
+      return result;
     } catch (error: any) {
       this.logger.error(`Tool discovery failed for connector ${id}: ${error.message}`);
       return { error: `Tool discovery failed: ${error.message}` };

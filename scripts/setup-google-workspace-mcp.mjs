@@ -195,14 +195,16 @@ async function main() {
   });
   console.log('Assigned to MCP server:', connectorIds.join(', '));
 
-  const oauth = await amcpRequest(
+  // Clear strict upstream output schemas and reload tool registry
+  const discovered = await amcpRequest(
     token,
     'POST',
-    `/api/connectors/${connector.id}/oauth/authorize`,
+    `/api/connectors/${connector.id}/discover-tools`,
   );
-  if (oauth.error) throw new Error(oauth.error);
+  if (!discovered.error) {
+    console.log('Refreshed tools (outputSchema stripped for MCP bridge)');
+  }
 
-  // Probe whether search works (needs valid OAuth token on connector)
   const MCP_KEY = await renderEnv('MCP_API_KEY');
   if (MCP_KEY) {
     const probe = await fetch(`${AMCP_BASE}/mcp/${AMCP_SERVER_ID}`, {
@@ -216,17 +218,28 @@ async function main() {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'search_corpus', arguments: { query: 'test' } },
+        params: { name: 'search_corpus', arguments: { query: 'calendar tomorrow' } },
       }),
     });
     const probeText = await probe.text();
     if (probeText.includes('unregistered callers') || probeText.includes('does not have permission')) {
       console.log('\nOAuth token missing or stale — authorization required.\n');
-    } else if (!probeText.includes('isError":true')) {
-      console.log('\nsearch_corpus probe: OK\n');
+    } else if (!probeText.includes('isError":true') && !probeText.includes('Output validation error')) {
+      console.log('\nsearch_corpus probe: OK');
+      console.log(probeText.slice(0, 400));
       return;
+    } else {
+      console.log('\nsearch_corpus probe failed (may need deploy):');
+      console.log(probeText.slice(0, 500));
     }
   }
+
+  const oauth = await amcpRequest(
+    token,
+    'POST',
+    `/api/connectors/${connector.id}/oauth/authorize`,
+  );
+  if (oauth.error) throw new Error(oauth.error);
 
   console.log('\n--- Open this URL to authorize Google Workspace MCP ---\n');
   console.log(oauth.authorizationUrl);

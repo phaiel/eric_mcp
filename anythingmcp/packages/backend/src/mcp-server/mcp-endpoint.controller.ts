@@ -684,14 +684,27 @@ export class McpEndpointController {
               ctx,
             );
             // When an outputSchema is advertised, the SDK requires
-            // structuredContent on success. Provide the parsed object
-            // (permissive schema never fails); errors skip validation.
+            // structuredContent on success. Prefer structuredContent from
+            // bridged MCP results; otherwise parse JSON text. Permissive
+            // optional schema should not fail on partial responses.
             if (outShape && !result.isError) {
               let structured: Record<string, unknown> = {};
               try {
                 const parsed = JSON.parse(result.content?.[0]?.text ?? '{}');
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+                if (
+                  parsed?.structuredContent &&
+                  typeof parsed.structuredContent === 'object' &&
+                  !Array.isArray(parsed.structuredContent)
+                ) {
+                  structured = parsed.structuredContent as Record<string, unknown>;
+                } else if (
+                  parsed &&
+                  typeof parsed === 'object' &&
+                  !Array.isArray(parsed) &&
+                  !parsed.content
+                ) {
                   structured = parsed;
+                }
               } catch {
                 /* keep {} */
               }
