@@ -42,6 +42,13 @@ services:
         generateValue: true
       - key: MCP_API_KEY
         generateValue: true
+      # Notion MCP sidecar (start.sh) — PAT + bridge auth; set NOTION_TOKEN in Dashboard.
+      - key: SSRF_ALLOW_LOCALHOST
+        value: "true"
+      - key: NOTION_MCP_PORT
+        value: "3001"
+      - key: NOTION_TOKEN
+        sync: false
       # SERVER_URL, FRONTEND_URL, etc. are auto-set from RENDER_EXTERNAL_URL in start.sh
       # After first deploy, set these in Render if OAuth redirects fail:
       #   SERVER_URL=https://<your-service>.onrender.com

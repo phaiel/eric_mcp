@@ -4,11 +4,13 @@
 # Runs NestJS backend and Next.js frontend in the same container.
 # =============================================================================
 
+NOTION_PID=""
+
 # Trap to clean up child processes on exit
 cleanup() {
   echo "==> Shutting down..."
-  kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
-  wait "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
+  kill "$BACKEND_PID" "$FRONTEND_PID" "$NOTION_PID" 2>/dev/null || true
+  wait "$BACKEND_PID" "$FRONTEND_PID" "$NOTION_PID" 2>/dev/null || true
   exit 0
 }
 trap cleanup TERM INT
@@ -39,6 +41,21 @@ fi
 echo "==> Running database migrations..."
 cd /app/backend
 npx prisma migrate deploy
+
+# Optional Notion MCP sidecar for PAT-based MCP Bridge (see docs/render-deploy.md).
+if [ -n "$NOTION_TOKEN" ]; then
+  NOTION_MCP_PORT="${NOTION_MCP_PORT:-3001}"
+  if [ -z "$NOTION_MCP_AUTH_TOKEN" ]; then
+    echo "==> ERROR: NOTION_TOKEN is set but NOTION_MCP_AUTH_TOKEN is missing."
+    exit 1
+  fi
+  echo "==> Starting Notion MCP sidecar (127.0.0.1:${NOTION_MCP_PORT})..."
+  npx -y @notionhq/notion-mcp-server --transport http \
+    --port "$NOTION_MCP_PORT" \
+    --host 127.0.0.1 \
+    --auth-token "$NOTION_MCP_AUTH_TOKEN" &
+  NOTION_PID=$!
+fi
 
 echo "==> Starting backend (port ${BACKEND_PORT})..."
 # Cap the V8 heap so a runaway allocation fails *this* process (caught by the
