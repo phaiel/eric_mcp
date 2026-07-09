@@ -22,7 +22,7 @@
       "authorizationUrl": "https://guavahealth.com/oauth/authorize",
       "tokenUrl": "https://api.guavahealth.com/oauth/token",
       "pushedAuthorizationRequestUrl": "https://api.guavahealth.com/oauth/par",
-      "scopes": "profile offline_access patient/sleep.cruds patient/activities.cruds patient/nutrition.cruds patient/water.cruds patient/resting_heart_rate.cruds patient/heart_rate_variability.cruds patient/oxygen_saturation.cruds patient/respiratory_rate.cruds patient/steps.cruds patient/heart_rate.cruds patient/vo2_max.cruds patient/weight.cruds patient/height.cruds patient/systolic_blood_pressure.cruds patient/diastolic_blood_pressure.cruds patient/blood_glucose.cruds patient/body_temperature.cruds patient/body_fat.cruds patient/body_water.cruds patient/bone_mass.cruds patient/muscle_mass.cruds patient/lean_mass.cruds"
+      "scopes": "profile offline_access patient/sleep.rs patient/activities.rs patient/nutrition.rs patient/water.rs patient/resting_heart_rate.rs patient/heart_rate_variability.rs patient/oxygen_saturation.rs patient/respiratory_rate.rs patient/steps.rs patient/heart_rate.rs patient/vo2_max.rs patient/vo2_max.cruds patient/weight.rs patient/weight.cruds patient/height.rs patient/height.cruds patient/blood_glucose.rs patient/body_temperature.rs"
     }
   },
   "tools": [
