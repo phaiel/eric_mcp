@@ -103,65 +103,77 @@ export class McpOAuthCallbackController {
         },
       });
 
-      // 3. Auto-discover tools from the remote MCP server
+      // 3. Reload the in-memory MCP tool registry so REST/GraphQL OAuth
+      // connectors pick up the new accessToken immediately. Without this,
+      // tools keep the pre-authorize authConfig (no Bearer) until restart —
+      // the dashboard "Test" path reads fresh from the DB, which is why UI
+      // works while MCP calls return Guava's missing-Bearer 401.
+      await this.mcpServer.reloadConnectorTools(flow.connectorId);
+
+      // 4. Auto-discover tools from remote MCP servers only (REST adapters
+      // already imported their tools from the catalog).
       let toolsImported = 0;
       try {
         const connector = await this.connectorsService.findByIdInternal(
           flow.connectorId,
         );
 
-        const mcpPath = getConnectorMcpPath(connector);
+        if (connector.type === 'MCP') {
+          const mcpPath = getConnectorMcpPath(connector);
 
-        const remoteTools = await this.mcpClientEngine.listTools({
-          baseUrl: connector.baseUrl,
-          authType: 'OAUTH2',
-          authConfig: {
-            accessToken: tokens.accessToken,
-          },
-          headers: connector.headers as Record<string, string>,
-          mcpPath,
-        });
+          const remoteTools = await this.mcpClientEngine.listTools({
+            baseUrl: connector.baseUrl,
+            authType: 'OAUTH2',
+            authConfig: {
+              accessToken: tokens.accessToken,
+            },
+            headers: connector.headers as Record<string, string>,
+            mcpPath,
+          });
 
-        for (const rt of remoteTools) {
-          try {
-            await this.prisma.mcpTool.create({
-              data: {
-                connectorId: flow.connectorId,
-                name: rt.name,
-                description: rt.description || `MCP tool: ${rt.name}`,
-                parameters: rt.inputSchema as any,
-                endpointMapping: {
-                  method: rt.name,
-                  path: mcpPath,
-                } as any,
-              },
-            });
-            toolsImported++;
-          } catch (err: any) {
-            // Skip duplicates
-            if (err.code !== 'P2002') {
-              this.logger.warn(
-                `Failed to import tool ${rt.name}: ${err.message}`,
-              );
+          for (const rt of remoteTools) {
+            try {
+              await this.prisma.mcpTool.create({
+                data: {
+                  connectorId: flow.connectorId,
+                  name: rt.name,
+                  description: rt.description || `MCP tool: ${rt.name}`,
+                  parameters: rt.inputSchema as any,
+                  endpointMapping: {
+                    method: rt.name,
+                    path: mcpPath,
+                  } as any,
+                },
+              });
+              toolsImported++;
+            } catch (err: any) {
+              // Skip duplicates
+              if (err.code !== 'P2002') {
+                this.logger.warn(
+                  `Failed to import tool ${rt.name}: ${err.message}`,
+                );
+              }
             }
           }
+
+          if (toolsImported > 0) {
+            await this.mcpServer.reloadConnectorTools(flow.connectorId);
+          }
+
+          this.logger.log(
+            `Auto-discovered ${toolsImported} tools for connector ${flow.connectorId}`,
+          );
         }
-
-        await this.mcpServer.reloadConnectorTools(flow.connectorId);
-
-        this.logger.log(
-          `Auto-discovered ${toolsImported} tools for connector ${flow.connectorId}`,
-        );
       } catch (discoverErr: any) {
         this.logger.warn(
           `Tool discovery failed after OAuth (will proceed anyway): ${discoverErr.message}`,
         );
       }
 
-      // 4. Clean up
+      // 5. Clean up
       this.mcpOAuthService.deletePendingFlow(state);
 
-      // 5. Redirect to frontend
+      // 6. Redirect to frontend
       return res.redirect(
         `${frontendUrl}/connectors/${flow.connectorId}?oauth=success&tools=${toolsImported}`,
       );
