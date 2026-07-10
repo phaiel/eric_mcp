@@ -220,6 +220,10 @@ export class DynamicMcpTools {
           : undefined,
         headers: interpolatedConfig.headers,
         specUrl: (tool.connectorConfig as any).specUrl,
+        // Required for OAuth2 refresh persistence. Without this, rotated
+        // refresh tokens (Guava, Google, …) are never written back to the DB
+        // and the next refresh fails with invalid_grant / 400.
+        connectorId: tool.connectorId,
         ...(proxyUrl ? { proxyUrl } : {}),
       };
 

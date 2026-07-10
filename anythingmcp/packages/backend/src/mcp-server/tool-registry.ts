@@ -132,4 +132,20 @@ export class ToolRegistry {
   getToolCount(): number {
     return this.toolsById.size;
   }
+
+  /**
+   * Replace the decrypted authConfig JSON on every tool for a connector.
+   * Used after OAuth2 token refresh so the next MCP call doesn't re-parse a
+   * stale refresh token (providers that rotate refresh tokens would then 400).
+   */
+  updateConnectorAuthConfig(
+    connectorId: string,
+    authConfigJson: string,
+  ): void {
+    for (const tool of this.toolsById.values()) {
+      if (tool.connectorId === connectorId) {
+        tool.connectorConfig.authConfig = authConfigJson;
+      }
+    }
+  }
 }

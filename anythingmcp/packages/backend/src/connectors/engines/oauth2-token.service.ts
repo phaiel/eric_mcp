@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../../common/prisma.service';
 import { encrypt, decrypt } from '../../common/crypto/encryption.util';
 import { getRequiredSecret } from '../../common/secrets.util';
 import { assertSafeOutboundUrl } from '../../common/ssrf.util';
+import { ToolRegistry } from '../../mcp-server/tool-registry';
 
 /** Refresh tokens that expire within this window (5 minutes). */
 const PROACTIVE_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -33,6 +34,7 @@ export class OAuth2TokenService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Optional() private readonly toolRegistry?: ToolRegistry,
   ) {
     this.encryptionKey = getRequiredSecret(
       'ENCRYPTION_KEY',
@@ -62,23 +64,38 @@ export class OAuth2TokenService {
       }
     }
 
+    // Prefer DB tokens when refreshing — MCP tools keep a stale authConfig
+    // snapshot in memory, and providers that rotate refresh tokens (Guava)
+    // reject the old one with 400 invalid_grant.
+    const effectiveAuth = await this.hydrateAuthConfigFromDb(
+      authConfig,
+      connectorId,
+    );
+
     // 2. Determine if proactive refresh is possible and needed.
     // client_credentials needs only tokenUrl + clientId/Secret; refresh_token
     // also needs a stored refreshToken.
     const hasRefreshCapability =
       grant === 'client_credentials'
-        ? !!(authConfig.tokenUrl && authConfig.clientId && authConfig.clientSecret)
-        : !!(authConfig.refreshToken && authConfig.tokenUrl);
-    const tokenNearExpiry = this.isTokenNearExpiry(authConfig, cacheKey);
+        ? !!(
+            effectiveAuth.tokenUrl &&
+            effectiveAuth.clientId &&
+            effectiveAuth.clientSecret
+          )
+        : !!(effectiveAuth.refreshToken && effectiveAuth.tokenUrl);
+    const tokenNearExpiry = this.isTokenNearExpiry(effectiveAuth, cacheKey);
 
     if (hasRefreshCapability && tokenNearExpiry) {
       this.logger.debug(`OAuth2 (${grant}): token near expiry, proactive refresh...`);
-      const refreshed = await this.refreshTokenWithMutex(authConfig, connectorId);
+      const refreshed = await this.refreshTokenWithMutex(
+        effectiveAuth,
+        connectorId,
+      );
       if (refreshed) {
         return refreshed;
       }
-      // Refresh failed — fall through to return stored token
     }
+    // Refresh failed — fall through to return stored token
 
     // 3. Return the best available token (cached or stored)
     if (cacheKey) {
@@ -88,7 +105,7 @@ export class OAuth2TokenService {
       }
     }
 
-    return String(authConfig.accessToken || '');
+    return String(effectiveAuth.accessToken || '');
   }
 
   /**
@@ -100,16 +117,26 @@ export class OAuth2TokenService {
     authConfig: Record<string, unknown>,
     connectorId?: string,
   ): Promise<string | null> {
-    const tokenUrl = String(authConfig.tokenUrl || '');
-    const grant = String(authConfig.grant || 'refresh_token');
-    const refreshToken = String(authConfig.refreshToken || '');
-    const clientId = authConfig.clientId
-      ? String(authConfig.clientId)
+    // Always refresh against the latest DB tokens when we have a connectorId.
+    const effectiveAuth = await this.hydrateAuthConfigFromDb(
+      authConfig,
+      connectorId,
+    );
+
+    const tokenUrl = String(effectiveAuth.tokenUrl || '');
+    const grant = String(effectiveAuth.grant || 'refresh_token');
+    const refreshToken = String(effectiveAuth.refreshToken || '');
+    const clientId = effectiveAuth.clientId
+      ? String(effectiveAuth.clientId)
       : undefined;
-    const clientSecret = authConfig.clientSecret
-      ? String(authConfig.clientSecret)
+    const clientSecret = effectiveAuth.clientSecret
+      ? String(effectiveAuth.clientSecret)
       : undefined;
-    const scope = authConfig.scope ? String(authConfig.scope) : undefined;
+    const scope = effectiveAuth.scope
+      ? String(effectiveAuth.scope)
+      : effectiveAuth.scopes
+        ? String(effectiveAuth.scopes)
+        : undefined;
 
     if (!tokenUrl) {
       this.logger.warn('OAuth2 refresh: missing tokenUrl');
@@ -146,6 +173,8 @@ export class OAuth2TokenService {
         );
         headers.Authorization = `Basic ${basic}`;
       } else {
+        // Guava (and OAuth 2.1 confidential clients) require client_secret_post
+        // OR Basic — never both. We use form fields only.
         body = {
           grant_type: 'refresh_token',
           refresh_token: refreshToken,
@@ -179,6 +208,8 @@ export class OAuth2TokenService {
       // Persist to DB if connectorId is available. For client_credentials
       // there's no refresh_token to store — we just record the latest
       // access_token + its expiry so a cold-start can reuse it briefly.
+      // Always prefer the rotated refresh_token when the provider returns one
+      // (Guava rotates on every refresh; reusing the old one → invalid_grant).
       if (connectorId) {
         await this.persistRefreshedToken(
           connectorId,
@@ -188,11 +219,60 @@ export class OAuth2TokenService {
         );
       }
 
+      // Keep the caller's authConfig object current for same-request 401 retries
+      authConfig.accessToken = access_token;
+      if (newRefreshToken) authConfig.refreshToken = newRefreshToken;
+      authConfig.expiresAt = Date.now() + expiresInMs;
+
       this.logger.debug(`OAuth2 (${grant}): token refreshed successfully`);
       return access_token;
     } catch (err: any) {
-      this.logger.warn(`OAuth2 (${grant}) token refresh failed: ${err.message}`);
+      const status = err?.response?.status;
+      const body = err?.response?.data;
+      this.logger.warn(
+        `OAuth2 (${grant}) token refresh failed: ${err.message}` +
+          (status ? ` status=${status}` : '') +
+          (body ? ` body=${JSON.stringify(body).slice(0, 300)}` : '') +
+          (connectorId ? ` connector=${connectorId}` : ''),
+      );
       return null;
+    }
+  }
+
+  /**
+   * Merge the latest tokens from the DB into the (possibly stale) in-memory
+   * authConfig snapshot used by MCP tools.
+   */
+  private async hydrateAuthConfigFromDb(
+    authConfig: Record<string, unknown>,
+    connectorId?: string,
+  ): Promise<Record<string, unknown>> {
+    if (!connectorId) return authConfig;
+    try {
+      const connector = await this.prisma.connector.findUnique({
+        where: { id: connectorId },
+        select: { authConfig: true },
+      });
+      if (!connector?.authConfig) return authConfig;
+      const stored = JSON.parse(
+        decrypt(connector.authConfig, this.encryptionKey),
+      ) as Record<string, unknown>;
+      return {
+        ...authConfig,
+        accessToken: stored.accessToken ?? authConfig.accessToken,
+        refreshToken: stored.refreshToken ?? authConfig.refreshToken,
+        expiresAt: stored.expiresAt ?? authConfig.expiresAt,
+        tokenUrl: stored.tokenUrl ?? authConfig.tokenUrl,
+        clientId: stored.clientId ?? authConfig.clientId,
+        clientSecret: stored.clientSecret ?? authConfig.clientSecret,
+        scopes: stored.scopes ?? authConfig.scopes,
+        scope: stored.scope ?? authConfig.scope,
+      };
+    } catch (err: any) {
+      this.logger.warn(
+        `OAuth2: failed to hydrate authConfig from DB: ${err.message}`,
+      );
+      return authConfig;
     }
   }
 
@@ -211,9 +291,11 @@ export class OAuth2TokenService {
       return inFlight;
     }
 
-    const refreshPromise = this.refreshToken(authConfig, connectorId).finally(() => {
-      this.refreshInFlight.delete(cacheKey);
-    });
+    const refreshPromise = this.refreshToken(authConfig, connectorId).finally(
+      () => {
+        this.refreshInFlight.delete(cacheKey);
+      },
+    );
 
     this.refreshInFlight.set(cacheKey, refreshPromise);
     return refreshPromise;
@@ -272,15 +354,19 @@ export class OAuth2TokenService {
       authConfig.expiresAt = expiresAt;
       authConfig.lastRefreshedAt = new Date().toISOString();
 
+      const encrypted = encrypt(JSON.stringify(authConfig), this.encryptionKey);
+
       await this.prisma.connector.update({
         where: { id: connectorId },
-        data: {
-          authConfig: encrypt(
-            JSON.stringify(authConfig),
-            this.encryptionKey,
-          ),
-        },
+        data: { authConfig: encrypted },
       });
+
+      // Keep MCP tool registry in sync so the next call doesn't re-parse a
+      // stale refresh token from the in-memory snapshot.
+      this.toolRegistry?.updateConnectorAuthConfig(
+        connectorId,
+        JSON.stringify(authConfig),
+      );
 
       this.logger.debug(
         `OAuth2: persisted refreshed token for connector ${connectorId}`,
